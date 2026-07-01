@@ -1,0 +1,563 @@
+---
+import Breadcrumbs from '@/components/Breadcrumbs.astro'
+import PageHead from '@/components/PageHead.astro'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import Layout from '@/layouts/Layout.astro'
+import { Icon } from 'astro-icon/components'
+
+const claimRows = [
+  { key: 'iss', label: 'Issuer' },
+  { key: 'sub', label: 'Subject' },
+  { key: 'aud', label: 'Audience' },
+  { key: 'exp', label: 'Expires' },
+  { key: 'nbf', label: 'Not before' },
+  { key: 'iat', label: 'Issued at' },
+  { key: 'jti', label: 'JWT ID' },
+]
+
+const decodedPanels = [
+  {
+    id: 'header-output',
+    title: 'Header',
+    copyLabel: 'Copy decoded header',
+  },
+  {
+    id: 'payload-output',
+    title: 'Payload',
+    copyLabel: 'Copy decoded payload',
+  },
+]
+---
+
+<Layout class="max-w-4xl">
+  <PageHead
+    slot="head"
+    title="JWT Decoder"
+    description="Decode JWT headers and payloads locally in your browser, inspect claims, and check token timing."
+  />
+  <Breadcrumbs
+    items={[
+      { label: 'Tools', href: '/tools', icon: 'lucide:wrench' },
+      { label: 'JWT Decoder', icon: 'lucide:key-round' },
+    ]}
+  />
+
+  <div class="flex flex-col gap-6">
+    <Card>
+      <CardHeader>
+        <div
+          class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+        >
+          <CardTitle>JWT Decoder</CardTitle>
+          <p id="decode-status" class="text-muted-foreground text-sm">Ready</p>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div class="space-y-3">
+          <label
+            for="jwt-input"
+            class="text-muted-foreground text-sm font-medium"
+          >
+            Token
+          </label>
+          <textarea
+            id="jwt-input"
+            class="border-border bg-background text-foreground min-h-36 w-full resize-y rounded-md border p-3 font-mono text-sm"
+            placeholder="Paste a JWT here..."
+            spellcheck="false"></textarea>
+
+          <div class="flex flex-wrap gap-2">
+            <button
+              id="decode-token"
+              class="bg-primary text-primary-foreground hover:bg-primary/90 rounded px-4 py-2 text-sm transition-colors"
+              type="button"
+            >
+              Decode
+            </button>
+            <button
+              id="clear-token"
+              class="border-border bg-background hover:bg-muted rounded border px-4 py-2 text-sm transition-colors"
+              type="button"
+            >
+              Clear
+            </button>
+            <button
+              class="copy-btn border-border bg-background hover:bg-muted ml-auto inline-flex items-center gap-2 rounded border px-4 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              data-target="jwt-input"
+              type="button"
+              disabled
+            >
+              <Icon name="lucide:copy" class="size-4" />
+              Copy token
+            </button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
+    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+      {
+        decodedPanels.map((panel) => (
+          <Card>
+            <CardHeader>
+              <div class="flex items-center justify-between gap-3">
+                <CardTitle>{panel.title}</CardTitle>
+                <button
+                  class="copy-btn text-muted-foreground hover:text-foreground hover:bg-muted rounded p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                  data-target={panel.id}
+                  data-decoded-copy
+                  title={panel.copyLabel}
+                  aria-label={panel.copyLabel}
+                  type="button"
+                  disabled
+                >
+                  <Icon name="lucide:copy" class="size-4" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <textarea
+                id={panel.id}
+                class="border-border bg-background text-foreground min-h-64 w-full resize-y rounded-md border p-3 font-mono text-sm"
+                spellcheck="false"
+              >{`{}`}</textarea>
+            </CardContent>
+          </Card>
+        ))
+      }
+    </div>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>Claims</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {
+            claimRows.map((claim) => (
+              <div class="border-border bg-muted/20 rounded-md border p-3">
+                <p class="text-muted-foreground text-xs font-medium">
+                  {claim.label}
+                </p>
+                <p
+                  id={`claim-${claim.key}`}
+                  class="text-foreground mt-1 font-mono text-sm break-words"
+                >
+                  -
+                </p>
+              </div>
+            ))
+          }
+        </div>
+      </CardContent>
+    </Card>
+
+    <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Token Status</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div id="status-list" class="flex flex-col gap-2">
+            <p class="text-muted-foreground text-sm">No token decoded yet.</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Signature</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div class="space-y-3">
+            <div>
+              <p class="text-muted-foreground text-xs font-medium">
+                Signing input
+              </p>
+              <pre
+                id="signing-input"
+                class="border-border bg-muted/20 mt-1 min-h-16 overflow-auto rounded-md border p-3 text-sm"><code>-</code></pre>
+            </div>
+            <div>
+              <p class="text-muted-foreground text-xs font-medium">Signature</p>
+              <pre
+                id="signature-output"
+                class="border-border bg-muted/20 mt-1 min-h-16 overflow-auto rounded-md border p-3 text-sm"><code>-</code></pre>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  type JsonRecord = Record<string, unknown>
+
+  const timeClaims = new Set(['exp', 'nbf', 'iat'])
+
+  function getById<T extends HTMLElement>(id: string) {
+    const element = document.getElementById(id)
+    if (!element) {
+      throw new Error(`Missing #${id}`)
+    }
+    return element as T
+  }
+
+  function base64UrlToBase64(value: string) {
+    const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
+    return base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
+  }
+
+  function decodeBase64Url(value: string) {
+    const binary = atob(base64UrlToBase64(value))
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    return new TextDecoder().decode(bytes)
+  }
+
+  function encodeBase64Url(value: string) {
+    const bytes = new TextEncoder().encode(value)
+    let binary = ''
+
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte)
+    }
+
+    return btoa(binary)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '')
+  }
+
+  function decodeJsonPart(value: string) {
+    return JSON.parse(decodeBase64Url(value)) as JsonRecord
+  }
+
+  function formatJson(value: unknown) {
+    return JSON.stringify(value, null, 2)
+  }
+
+  function formatClaimValue(key: string, value: unknown) {
+    if (value === undefined) return '-'
+
+    if (timeClaims.has(key) && typeof value === 'number') {
+      return formatUnixTime(value)
+    }
+
+    if (Array.isArray(value)) return value.join(', ')
+    if (typeof value === 'object' && value !== null) return formatJson(value)
+    return String(value)
+  }
+
+  function formatUnixTime(seconds: number) {
+    const date = new Date(seconds * 1000)
+    if (Number.isNaN(date.getTime())) return String(seconds)
+
+    return `${date.toLocaleString()} (${date.toISOString()})`
+  }
+
+  function formatRelative(seconds: number) {
+    const diffSeconds = Math.round(seconds - Date.now() / 1000)
+    const absSeconds = Math.abs(diffSeconds)
+
+    const units = [
+      { label: 'day', seconds: 86400 },
+      { label: 'hour', seconds: 3600 },
+      { label: 'minute', seconds: 60 },
+      { label: 'second', seconds: 1 },
+    ]
+
+    const unit =
+      units.find((candidate) => absSeconds >= candidate.seconds) || units[3]
+    const amount = Math.round(absSeconds / unit.seconds)
+    const label = `${amount} ${unit.label}${amount === 1 ? '' : 's'}`
+
+    if (diffSeconds === 0) return 'now'
+    return diffSeconds > 0 ? `in ${label}` : `${label} ago`
+  }
+
+  function makeStatus(
+    message: string,
+    tone: 'neutral' | 'good' | 'warn' | 'bad',
+  ) {
+    const toneClasses = {
+      neutral: 'border-border bg-muted/20 text-muted-foreground',
+      good: 'border-additive/30 bg-additive/10 text-additive',
+      warn: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-600',
+      bad: 'border-destructive/30 bg-destructive/10 text-destructive',
+    }
+
+    const item = document.createElement('p')
+    item.className = `rounded-md border px-3 py-2 text-sm ${toneClasses[tone]}`
+    item.textContent = message
+    return item
+  }
+
+  function copyToClipboard(text: string) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(
+        () => true,
+        () => false,
+      )
+    }
+
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-999999px'
+    textarea.style.top = '-999999px'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+
+    try {
+      return Promise.resolve(document.execCommand('copy'))
+    } finally {
+      document.body.removeChild(textarea)
+    }
+  }
+
+  document.addEventListener('astro:page-load', () => {
+    const input = getById<HTMLTextAreaElement>('jwt-input')
+    const decodeButton = getById<HTMLButtonElement>('decode-token')
+    const clearButton = getById<HTMLButtonElement>('clear-token')
+    const decodeStatus = getById<HTMLParagraphElement>('decode-status')
+    const headerOutput = getById<HTMLTextAreaElement>('header-output')
+    const payloadOutput = getById<HTMLTextAreaElement>('payload-output')
+    const statusList = getById<HTMLDivElement>('status-list')
+    const signingInput = getById<HTMLPreElement>('signing-input')
+    const signatureOutput = getById<HTMLPreElement>('signature-output')
+    const copyButtons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.copy-btn'),
+    )
+    const decodedCopyButtons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[data-decoded-copy]'),
+    )
+    const tokenCopyButton = document.querySelector<HTMLButtonElement>(
+      '[data-target="jwt-input"]',
+    )
+
+    function setStatus(message: string, isError = false) {
+      decodeStatus.textContent = message
+      decodeStatus.classList.toggle('text-destructive', isError)
+      decodeStatus.classList.toggle('text-muted-foreground', !isError)
+    }
+
+    function setTextarea(textarea: HTMLTextAreaElement, value: string) {
+      textarea.value = value
+    }
+
+    function setPre(pre: HTMLPreElement, value: string) {
+      const code = pre.querySelector('code')
+      if (code) code.textContent = value
+      else pre.textContent = value
+    }
+
+    function setDecodedCopyEnabled(enabled: boolean) {
+      decodedCopyButtons.forEach((button) => {
+        button.disabled = !enabled
+      })
+    }
+
+    function updateTokenCopyButton() {
+      if (!tokenCopyButton) return
+      tokenCopyButton.disabled = !input.value.trim()
+    }
+
+    function resetOutputs() {
+      setTextarea(headerOutput, '{}')
+      setTextarea(payloadOutput, '{}')
+      setPre(signingInput, '-')
+      setPre(signatureOutput, '-')
+      statusList.replaceChildren(makeStatus('No token decoded yet.', 'neutral'))
+
+      for (const key of ['iss', 'sub', 'aud', 'exp', 'nbf', 'iat', 'jti']) {
+        getById<HTMLElement>(`claim-${key}`).textContent = '-'
+      }
+
+      setDecodedCopyEnabled(false)
+      updateTokenCopyButton()
+      setStatus('Ready')
+    }
+
+    function renderStatus(
+      header: JsonRecord,
+      payload: JsonRecord,
+      hasSignature: boolean,
+    ) {
+      const items: HTMLElement[] = []
+      const now = Date.now() / 1000
+      const algorithm = typeof header.alg === 'string' ? header.alg : ''
+
+      if (algorithm) {
+        if (algorithm.toLowerCase() === 'none') {
+          items.push(
+            makeStatus('Algorithm is "none"; this token is unsigned.', 'bad'),
+          )
+        } else {
+          items.push(makeStatus(`Algorithm: ${algorithm}`, 'neutral'))
+        }
+      }
+
+      if (!hasSignature) {
+        items.push(makeStatus('Signature segment is empty or missing.', 'warn'))
+      }
+
+      if (typeof payload.exp === 'number') {
+        const expired = payload.exp <= now
+        items.push(
+          makeStatus(
+            expired
+              ? `Expired ${formatRelative(payload.exp)}`
+              : `Expires ${formatRelative(payload.exp)}`,
+            expired ? 'bad' : 'good',
+          ),
+        )
+      } else {
+        items.push(makeStatus('No exp claim found.', 'warn'))
+      }
+
+      if (typeof payload.nbf === 'number' && payload.nbf > now) {
+        items.push(
+          makeStatus(`Not valid until ${formatRelative(payload.nbf)}`, 'warn'),
+        )
+      }
+
+      if (typeof payload.iat === 'number') {
+        items.push(
+          makeStatus(`Issued ${formatRelative(payload.iat)}`, 'neutral'),
+        )
+      }
+
+      statusList.replaceChildren(...items)
+    }
+
+    function getSignaturePart() {
+      const parts = input.value.trim().split('.')
+      return parts.length === 3 ? parts[2] : ''
+    }
+
+    function rebuildTokenFromDecoded() {
+      try {
+        const header = JSON.parse(headerOutput.value) as JsonRecord
+        const payload = JSON.parse(payloadOutput.value) as JsonRecord
+        const headerPart = encodeBase64Url(JSON.stringify(header))
+        const payloadPart = encodeBase64Url(JSON.stringify(payload))
+        const signaturePart = getSignaturePart()
+        const rebuiltToken = `${headerPart}.${payloadPart}.${signaturePart}`
+
+        input.value = rebuiltToken
+        setPre(signingInput, `${headerPart}.${payloadPart}`)
+        setPre(signatureOutput, signaturePart || '-')
+
+        for (const key of ['iss', 'sub', 'aud', 'exp', 'nbf', 'iat', 'jti']) {
+          getById<HTMLElement>(`claim-${key}`).textContent = formatClaimValue(
+            key,
+            payload[key],
+          )
+        }
+
+        renderStatus(header, payload, Boolean(signaturePart))
+        statusList.prepend(
+          makeStatus(
+            'Header or payload edited; signature was not re-signed.',
+            'warn',
+          ),
+        )
+        setDecodedCopyEnabled(true)
+        updateTokenCopyButton()
+        setStatus('Rebuilt without signing')
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Header or payload JSON is invalid'
+        setStatus(message, true)
+        setDecodedCopyEnabled(false)
+      }
+    }
+
+    function decodeToken() {
+      const token = input.value.trim()
+
+      if (!token) {
+        resetOutputs()
+        return
+      }
+
+      const parts = token.split('.')
+
+      try {
+        if (parts.length < 2 || parts.length > 3) {
+          throw new Error('JWTs should have header.payload.signature segments')
+        }
+
+        const [headerPart, payloadPart, signaturePart = ''] = parts
+        const header = decodeJsonPart(headerPart)
+        const payload = decodeJsonPart(payloadPart)
+
+        setTextarea(headerOutput, formatJson(header))
+        setTextarea(payloadOutput, formatJson(payload))
+        setPre(signingInput, `${headerPart}.${payloadPart}`)
+        setPre(signatureOutput, signaturePart || '-')
+
+        for (const key of ['iss', 'sub', 'aud', 'exp', 'nbf', 'iat', 'jti']) {
+          getById<HTMLElement>(`claim-${key}`).textContent = formatClaimValue(
+            key,
+            payload[key],
+          )
+        }
+
+        renderStatus(header, payload, Boolean(signaturePart))
+        setDecodedCopyEnabled(true)
+        updateTokenCopyButton()
+        setStatus('Decoded')
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Could not decode token'
+        setStatus(message, true)
+        setDecodedCopyEnabled(false)
+        updateTokenCopyButton()
+      }
+    }
+
+    decodeButton.addEventListener('click', decodeToken)
+    input.addEventListener('input', decodeToken)
+    headerOutput.addEventListener('input', rebuildTokenFromDecoded)
+    payloadOutput.addEventListener('input', rebuildTokenFromDecoded)
+
+    clearButton.addEventListener('click', () => {
+      input.value = ''
+      resetOutputs()
+    })
+
+    copyButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const target = button.dataset.target
+        if (!target) return
+
+        const element = getById<HTMLElement>(target)
+        const text =
+          element instanceof HTMLTextAreaElement
+            ? element.value
+            : element.querySelector('code')?.textContent ||
+              element.textContent ||
+              ''
+
+        if (!text.trim() || text.trim() === '{}') return
+
+        copyToClipboard(text).then((success) => {
+          if (!success) return
+
+          const original = button.innerHTML
+          button.innerHTML = '<span>Copied</span>'
+          window.setTimeout(() => {
+            button.innerHTML = original
+          }, 900)
+        })
+      })
+    })
+
+    resetOutputs()
+  })
+</script>

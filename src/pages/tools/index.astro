@@ -1,0 +1,52 @@
+---
+import Breadcrumbs from '@/components/Breadcrumbs.astro'
+import Link from '@/components/Link.astro'
+import PageHead from '@/components/PageHead.astro'
+import Layout from '@/layouts/Layout.astro'
+import { Icon } from 'astro-icon/components'
+
+const tools = [
+  {
+    href: '/tools/ascii',
+    title: 'ASCII Converter',
+    icon: 'lucide:type',
+    description:
+      'Convert text between ASCII, hex, binary, decimal, Base64, URL encoding, HTML entities, Unicode code points, and integer formats.',
+  },
+  {
+    href: '/tools/jwt',
+    title: 'JWT Decoder',
+    icon: 'lucide:key-round',
+    description:
+      'Decode JWT headers and payloads locally, inspect claims, and check expiration, issued-at, and signature metadata.',
+  },
+]
+---
+
+<Layout class="max-w-3xl">
+  <PageHead slot="head" title="Tools" />
+  <Breadcrumbs items={[{ label: 'Tools', icon: 'lucide:wrench' }]} />
+
+  <div class="flex flex-col gap-4">
+    <div class="flex flex-wrap gap-2">
+      <ul class="flex flex-col gap-2">
+        {
+          tools.map((tool) => (
+            <li>
+              <Link
+                href={tool.href}
+                class="hover:bg-accent/10 text-foreground/80 hover:text-foreground/100 block rounded-lg p-4 transition-colors"
+              >
+                <span class="inline-flex items-center gap-2">
+                  {tool.title}
+                  <Icon name={tool.icon} class="size-4" />
+                </span>
+                <p class="mt-1 ml-1 text-sm">{tool.description}</p>
+              </Link>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</Layout>

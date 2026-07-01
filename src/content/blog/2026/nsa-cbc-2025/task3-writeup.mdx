@@ -1,0 +1,376 @@
+---
+title: "Task 3 Writeup"
+description: "A writeup for the third task of the 2025 NSA Codebreaker Challenge"
+date: 1-6-2026
+slug: nsa-cbc-2025/task3
+tags: ['writeup', 'codebreaker', 'forensics', '2025']
+authors: ["flocto"]
+image: "./hero.png"
+order: 3
+---
+import Callout from '@/components/Callout.astro'
+
+## Task 3 - Digging deeper - (Reverse Engineering)
+<Callout title="Description" showVariant={false}>
+The network administrators confirm that the IP address you provided in your description is an edge router. DAFIN-SOC is asking you to dive deeper and reverse engineer this device. Fortunately, their team managed to pull a memory dump of the device.
+
+Scour the device's memory dump and identify anomalous or malicious activity to find out what's going on.
+
+Your submission will be a list of IPs and domains, one per line. For example:
+
+`127.0.0.1 localhost`
+
+`192.168.54.131 corp.internal`
+
+`...`
+
+Downloads:
+- Memory Dump (memory.dump.gz)
+- Metadata (System.map.br)
+- Kernel Image (vmlinux.xz)
+ 
+Prompt:
+- Submit a complete list of affected IPs and FQDNs, one per line.
+</Callout>
+
+This time we're given a memory dump, so it's time to pull out [Volatility](https://www.volatilityfoundation.org/) again. After running the 3 necessary commands to decompress the 3 different compression formats (lol), we can start analyzing the memory dump.
+
+### Building the profile
+First, we need to build a profile for the kernel used in the memory dump, as this is a custom router kernel. Thankfully, we are provided with the necessary `System.map` and `vmlinux` files to do this. 
+
+Following [this tutorial](https://www.iblue.team/memory-forensics-1/volatility-plugins/build-custom-linux-profile-for-volatility), we can skip most of the dumping steps since we already have the kernel image.
+
+First, we clone [`dwarf2json`](https://github.com/volatilityfoundation/dwarf2json) and build it using `go build`. Then we run the following command to generate the JSON file:
+
+```bash
+./dwarf2json --elf ./vmlinux --system-map ./System.map > ./dwarf.json
+```
+
+Next, we move it to `volatility3/symbols/linux/` to ensure Volatility can find it. 
+```bash
+mkdir -p ~/tools/volatility3/volatility3/symbols/linux/
+mv ./dwarf.json ~/tools/volatility3/volatility3/symbols/linux/nsa_cbc_task3.json
+```
+
+To check that we've properly built it, we can use the `isfinfo` plugin:
+```shell {6}
+$ python3 vol.py isfinfo
+Volatility 3 Framework 2.27.1
+Progress:  100.00               PDB scanning finished
+URI     Valid   Number of base_types    Number of types Number of symbols       Number of enums Identifying information
+
+/tools/volatility3/volatility3/symbols/linux/nsa_cbc_task3.json       True (cached)   18      10897   147490  1756    b'Linux version 5.15.134 (dsu@Ubuntu) (x86_64-openwrt-linux-musl-gcc (OpenWrt GCC 12.3.0 r23497-6637af95aa) 12.3.0, GNU ld (GNU Binutils) 2.40.0) #0 SMP Mon Oct 9 21:45:35 2023\n\x00'
+```
+
+We can see that our profile for the OpenWrt kernel has been successfully built.
+
+### Analyzing the memory dump
+
+Unfortunately, we can't extract any files directly from the memory dump using any of the `linux.pagecache` plugins. There are other plugins that seem to not work as well, possibly due to the custom nature of the kernel. After trying a few different plugins, it seems that most of them don't yield any useful results.
+
+However, one useful thing we can still do is list and dump processes.
+
+Using `pstree`, we can see all the running processes in the memory dump:
+```shell title="linux.pstree output"
+$ python3 vol.py -f ./memory.dump linux.pstree
+Volatility 3 Framework 2.27.1
+Progress:  100.00               Stacking attempts finished
+OFFSET (V)      PID     TID     PPID    COMM
+
+0x88800329cb40  1       1       0       procd
+* 0x88800534da40        514     514     1       ubusd
+* 0x88800534bc40        515     515     1       ash
+** 0x888003edad40       1552    1552    515     4
+*** 0x8880063c0040      1854    1854    1552    service
+**** 0x8880063c2d40     1855    1855    1854    dnsmasq
+* 0x888005349e40        516     516     1       askfirst
+* 0x888003edbc40        551     551     1       urngd
+* 0x88800631da40        1018    1018    1       logd
+* 0x8880067f9e40        1168    1168    1       dnsmasq
+** 0x8880067f8040       1174    1174    1168    dnsmasq
+* 0x8880063c1e40        1244    1244    1       dropbear
+* 0x888003f20040        1405    1405    1       netifd
+* 0x88800631ad40        1524    1524    1       odhcpd
+* 0x8880067f8f40        1744    1744    1       ntpd
+** 0x8880057acb40       1749    1749    1744    ntpd
+0x88800329e940  2       2       0       kthreadd
+... # truncated for brevity
+```
+
+We know that we're looking for something that would've caused the malicious DNS response from the previous task, so the most suspicious tree here is the `ash > 4 > service > dnsmasq` one. Let's start from the top, and dump the very suspiciously named `4` process.
+
+```shell
+$ python3 vol.py -o ./dump/ -f ./memory.dump linux.proc --dump --pid 1552
+Volatility 3 Framework 2.27.1
+Progress:  100.00               Stacking attempts finished
+PID     Process Start   End     Flags   PgOff   Major   Minor   Inode   File Path       File output
+
+1552    4       0x564595660000  0x564595661000  r--     0x0     0       1       3       /memfd:x (deleted)      pid.1552.vma.0x564595660000-0x564595661000.dmp
+1552    4       0x564595661000  0x564595662000  r-x     0x1000  0       1       3       /memfd:x (deleted)      pid.1552.vma.0x564595661000-0x564595662000.dmp
+1552    4       0x564595662000  0x564595663000  r--     0x2000  0       1       3       /memfd:x (deleted)      pid.1552.vma.0x564595662000-0x564595663000.dmp
+1552    4       0x564595663000  0x564595664000  r--     0x2000  0       1       3       /memfd:x (deleted)      pid.1552.vma.0x564595663000-0x564595664000.dmp
+1552    4       0x564595664000  0x564595665000  rw-     0x3000  0       1       3       /memfd:x (deleted)      pid.1552.vma.0x564595664000-0x564595665000.dmp
+1552    4       0x56459632f000  0x564596330000  ---     0x0     0       0       0       Anonymous Mapping       pid.1552.vma.0x56459632f000-0x564596330000.dmp
+1552    4       0x564596330000  0x564596331000  rw-     0x0     0       0       0       Anonymous Mapping       pid.1552.vma.0x564596330000-0x564596331000.dmp
+1552    4       0x7f3b2d6ec000  0x7f3b2d6ed000  rw-     0x0     0       0       0       Anonymous Mapping       pid.1552.vma.0x7f3b2d6ec000-0x7f3b2d6ed000.dmp
+1552    4       0x7f3b2d6ed000  0x7f3b2d701000  r--     0x0     254     0       361     /lib/libc.so    pid.1552.vma.0x7f3b2d6ed000-0x7f3b2d701000.dmp
+1552    4       0x7f3b2d701000  0x7f3b2d74d000  r-x     0x14000 254     0       361     /lib/libc.so    pid.1552.vma.0x7f3b2d701000-0x7f3b2d74d000.dmp
+1552    4       0x7f3b2d74d000  0x7f3b2d762000  r--     0x60000 254     0       361     /lib/libc.so    pid.1552.vma.0x7f3b2d74d000-0x7f3b2d762000.dmp
+1552    4       0x7f3b2d762000  0x7f3b2d763000  r--     0x74000 254     0       361     /lib/libc.so    pid.1552.vma.0x7f3b2d762000-0x7f3b2d763000.dmp
+1552    4       0x7f3b2d763000  0x7f3b2d764000  rw-     0x75000 254     0       361     /lib/libc.so    pid.1552.vma.0x7f3b2d763000-0x7f3b2d764000.dmp
+1552    4       0x7f3b2d764000  0x7f3b2d767000  rw-     0x0     0       0       0       Anonymous Mapping       pid.1552.vma.0x7f3b2d764000-0x7f3b2d767000.dmp
+1552    4       0x7fffbde5b000  0x7fffbde7c000  rw-     0x0     0       0       0       [stack] pid.1552.vma.0x7fffbde5b000-0x7fffbde7c000.dmp
+1552    4       0x7fffbdf4a000  0x7fffbdf4e000  r--     0x0     0       0       0       Anonymous Mapping       pid.1552.vma.0x7fffbdf4a000-0x7fffbdf4e000.dmp
+1552    4       0x7fffbdf4e000  0x7fffbdf4f000  r-x     0x0     0       0       0       [vdso]  pid.1552.vma.0x7fffbdf4e000-0x7fffbdf4f000.dmp
+```
+
+Next, I wrote a small helper script to load it all together into Binary Ninja for analys:
+```python
+import binaryninja
+import os
+
+pid = 1552
+prefix = f'pid.{pid}.vma.'
+
+path = r'dump/'
+
+maps = []
+for file in os.listdir(path):
+    if file.startswith(prefix):
+        start, end = file.split('.')[3].split('-')
+        start, end = int(start, 16), int(end, 16)
+        full_path = os.path.join(path, file)
+        maps.append((start, end, full_path))
+maps.sort()
+
+# merge first 4 segments to form elf
+merged = []
+data = b''
+for start, end, filepath in maps[:4]:
+    with open(filepath, 'rb') as f:
+        data += f.read()
+merged.append((maps[0][0], maps[2][1], data))
+
+# add the rest of the segments as is
+for start, end, filepath in maps[4:]:
+    merged.append((start, end, open(filepath, 'rb').read()))
+
+maps = merged
+
+with binaryninja.load(maps[0][2]) as new_bv:
+    base_addr = maps[0][0]
+    new_bv = new_bv.rebase(base_addr, force=True)
+    new_bv.update_analysis_and_wait()
+
+    for start, end, data in maps[1:]:
+        f = new_bv.memory_map.add_memory_region(f'{start:x}', start, data)
+        new_bv.add_auto_segment(start, end - start, start, end - start, binaryninja.SegmentFlag.SegmentReadable | binaryninja.SegmentFlag.SegmentWritable | binaryninja.SegmentFlag.SegmentExecutable)
+
+    new_bv.update_analysis_and_wait()
+    new_bv.create_database(r'dump/reconstructed.bndb')
+```
+
+This gives us a nice binary that we can now properly reverse engineer.
+
+### Reversing the payload
+
+Looking at the main function, we have something that appears to decode some payload, then uses that payload to do something with `dnsmasq`:
+```c collapse={2-43}
+int32_t main(int32_t argc, char** argv, char** envp)
+    void* fsbase
+    int64_t rax = *(fsbase + 0x28)
+    int32_t result
+    
+    if (argc == 2)
+        sub_5645956612bf()
+        uint64_t var_40 = 0
+        void* rax_7 = sub_564595661383(argv[1], &var_40)
+        
+        if (rax_7 != 0)
+            int64_t var_38 = 0
+            char* rax_9 = sub_564595661609(rax_7, var_40, &var_38)
+            free(ptr: rax_7)
+            
+            if (rax_9 == 0)
+                result = 1
+            else if (var_38 u> 3)
+                uint64_t rax_30 = var_38 - 4
+                sub_5645956618fb(&rax_9[4], rax_30, 
+                    zx.d(rax_9[3]) << 0x18 | zx.d(rax_9[1]) << 8 | zx.d(*rax_9)
+                        | zx.d(rax_9[2]) << 0x10)
+                sub_56459566197e(&rax_9[4], rax_30)
+                system(line: "service dnsmasq restart")
+                free(ptr: rax_9)
+                sub_56459566156c()
+                result = 0
+            else
+                fwrite(buf: "Decoded payload too short to even have the key...\n", size: 1, 
+                    count: 0x32, fp: stderr)
+                free(ptr: rax_9)
+                result = 1
+        else
+            result = 1
+    else
+        fprintf(stream: stderr, format: "Usage: %s <encoded file>\n", *argv, 
+            "Usage: %s <encoded file>\n")
+        result = 1
+        
+    if (rax == *(fsbase + 0x28))
+        return result
+    
+    __stack_chk_fail()
+```
+
+I won't go over each subfunction in detail, as they are fairly easily to follow. Here's what main looks like all cleaned up:
+```c
+int32_t main(int32_t argc, char** argv, char** envp)
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    int32_t result
+    
+    if (argc == 2)
+        fill_b64map()
+        uint64_t len = 0
+        char* file_buf = read_file(filename: argv[1], out_len: &len)
+        
+        if (file_buf != 0)
+            int64_t out_len = 0
+            struct encrypted_file* buf = b64_decode(file_buf, n: len, &out_len)
+            free(ptr: file_buf)
+            
+            if (buf == 0)
+                result = 1
+            else if (out_len u> 3)
+                uint64_t enc_len = out_len - 4
+                decrypt_data(buf: &buf->data, enc_len, 
+                    key: zx.d(buf->key[3]) << 0x18 | zx.d(buf->key[1]) << 8 | zx.d(buf->key[0])
+                        | zx.d(buf->key[2]) << 0x10)
+                write_to_etc_hosts(&buf->data, enc_len)
+                system(line: "service dnsmasq restart")
+                free(ptr: buf)
+                set_exit_handler()
+                result = 0
+            else
+                fwrite(buf: "Decoded payload too short to even have the key...\n", size: 1, 
+                    count: 0x32, fp: stderr)
+                free(ptr: buf)
+                result = 1
+        else
+            result = 1
+    else
+        fprintf(stream: stderr, format: "Usage: %s <encoded file>\n", *argv, 
+            "Usage: %s <encoded file>\n")
+        result = 1
+    
+    if (CANARY == tcb->stack_guard)
+        return result
+    
+    __stack_chk_fail()
+```
+
+From this, we can see that the program reads in some base64 data from a file, decodes and decrypts it, then writes some contents to `/etc/hosts` before restarting `dnsmasq`.
+
+Let's look at the decryption function:
+```c {"xor cbc-like decryption":5-10}
+uint64_t decrypt_data(char* buf, int64_t enc_len, int32_t key)
+    char c_1 = key.b
+    int32_t S = key
+    uint64_t i
+    
+    for (i = 0; i u< enc_len; i += 1)
+        S += 0x722633ad
+        char c = buf[i]
+        buf[i] = c ^ (S u>> 0xd).b ^ S.b ^ c_1
+        c_1 = c
+    
+    return i
+```
+
+Since the key is derived from the first 4 bytes of the decoded payload, we can easily replicate this decryption in Python. Thankfully, since the base64 data is read into heap memory, we can just extract it from the memory dump. It is a bit overlapping with some other Binja stuff, but that doesn't really matter.
+
+![Extracting base64 data from memory dump](/img/writeups/2026/nsa-cbc/task3-binja-b64.png)
+
+After extracting, we can write a small Python script to decode and decrypt it:
+```python title="solve.py" collapse={9-20}
+import base64
+import struct 
+data = open('encoded_file.txt', 'r').read()
+decoded_data = base64.b64decode(data)
+
+key = struct.unpack('<I', decoded_data[:4])[0]
+enc = bytearray(decoded_data[4:])
+
+# 5645956618fb    uint64_t decrypt(char* enc, int64_t n, int32_t key)
+# 564595661911        char c_1 = key.b
+# 564595661917        int32_t key_1 = key
+# 564595661978        uint64_t i
+# 564595661978        
+# 564595661978        for (i = 0; i u< n; i += 1)
+# 564595661929            key_1 += 0x722633ad
+# 564595661947            char c = enc[i]
+# 564595661962            enc[i] = c ^ (key_1 u>> 0xd).b ^ key_1.b ^ c_1
+# 564595661968            c_1 = c
+# 564595661968        
+# 56459566197d        return i
+
+def decrypt(enc, key):
+    n = len(enc)
+    key_1 = key
+    c_1 = key & 0xFF
+    for i in range(n):
+        key_1 = (key_1 + 0x722633ad) & 0xFFFFFFFF
+        c = enc[i]
+        enc[i] = c ^ ((key_1 >> 13) & 0xFF) ^ (key_1 & 0xFF) ^ c_1
+        c_1 = c
+    return enc
+
+decrypted_data = decrypt(enc, key).decode()
+
+toks = decrypted_data.split()
+for i in range(0, len(toks), 2):
+    print(f'{toks[i]} {toks[i+1]}')
+```
+
+This gives us the final output of all the IPs and domains that were being spoofed:
+```shell collapse={6-50} ins={2-50}
+$ python3 solve.py
+203.0.113.240 download.opensuse.org
+203.0.113.147 mirror.stream.centos.org
+203.0.113.240 security.debian.org
+203.0.113.240 download1.rpmfusion.org
+203.0.113.240 packages.linuxmint.com
+203.0.113.240 us.archive.ubuntu.com
+203.0.113.240 dl.fedoraproject.org
+203.0.113.147 geo.mirror.pkgbuild.com
+203.0.113.240 deb.debian.org
+203.0.113.147 mirrors.rpmfusion.org
+203.0.113.240 repo-default.voidlinux.org
+203.0.113.101 pypi.python.org
+203.0.113.240 repo.almalinux.org
+203.0.113.240 ports.ubuntu.org
+203.0.113.147 mirrors.alpinelinux.org
+203.0.113.101 pypi.io
+203.0.113.240 security.ubuntu.com
+203.0.113.240 security.ubuntu.org
+203.0.113.240 dl.rockylinux.org
+203.0.113.240 distfiles.gentoo.org
+203.0.113.101 files.pythonhosted.org
+203.0.113.147 mirrors.opensuse.org
+203.0.113.240 dl-cdn.alpinelinux.org
+203.0.113.147 mirrors.kernel.org
+203.0.113.147 mirrors.rockylinux.org
+203.0.113.101 pypi.org
+203.0.113.240 repos.opensuse.org
+203.0.113.240 archive.ubuntu.com
+203.0.113.240 cache.nixos.org
+203.0.113.147 mirrors.fedoraproject.org
+203.0.113.240 ports.ubuntu.com
+203.0.113.240 ftp.us.debian.org
+203.0.113.240 archive.archlinux.org
+203.0.113.147 xmirror.voidlinux.org
+203.0.113.240 archive.ubuntu.org
+203.0.113.147 mirror.rackspace.com
+203.0.113.240 http.kali.org
+```
+
+Submitting this list completes Task 3 of the NSA Codebreaker Challenge!

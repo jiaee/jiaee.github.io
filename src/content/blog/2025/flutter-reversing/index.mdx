@@ -1,0 +1,32 @@
+---
+title: "Flutter Android Reversing"
+description: "A guide to reversing Flutter Android applications, using a GoogleCTF challenge as an example."
+slug: flutter-reversing
+date: 7-2-2025
+tags: ['writeup', 'android', 'flutter', '2025', 'rev']
+authors: ['flocto']
+image: './hero.png'
+---
+
+I've wanted to mess around with Android reversing for a while, and recently I solved two challenges (one from CyberSci Nationals and the other from GoogleCTF) both being Flutter Android applications, so I thought it was only fitting to make my own tools and guide on how I approach reversing them.
+
+Also, I've split this post into multiple parts, using the [new subposts feature](https://astro-erudite.vercel.app/blog/mobile-nav-and-subposts/subposts) from the template (thanks enscribe!). The first 3 parts will be more about the general approach to reversing Flutter Android applications, while the last part will be reserved for a writeup of fluffy from GoogleCTF.
+
+That's all for the intro, let's get started!
+
+## Part 0: Setup
+
+Before we actually start reversing, we need to set up a proper environment.
+
+First, since we are reversing an Android application, we obviously need an Android device or emulator. There are good guides for this online, so I won't explain how to set one up here. However, just make sure that you have a way of getting root on the device, as we'll need it to inject Frida later.
+
+For this guide, I'll mostly be using BlueStacks, as well as my own rooted Pixel 6a, so some of the instructions might slightly differ depending on the device you use. This is especially important if you're using an emulator, as you might be running the architecture of your host machine instead of ARM.
+
+Next, we need some useful tools. I'll likely mention some more tools later, but here are the main ones that we'll use:
+- [Frida](https://frida.re/) - A dynamic instrumentation toolkit that is very extensible and fairly easy to use.
+- [ADB](https://developer.android.com/tools/releases/platform-tools) - The Android Debug Bridge, which allows us to interact with the Android device.
+- [reFlutter](https://github.com/Impact-I/reFlutter) - A tool that recompiles Flutter applications to assist with dumping and dynamic analysis.
+- [uber-apk-signer](https://github.com/patrickfav/uber-apk-signer) - Used to sign the reFlutter recompiled APK.
+- [jadx](https://github.com/skylot/jadx) - A tool that decompiles and extracts jars and APKs.
+
+Finally, just a shoutout to Guardsquare, whose [original blogpost](https://www.guardsquare.com/blog/current-state-and-future-of-reversing-flutter-apps) helped greatly for this guide and helped me a lot during my solves of the CTF challenges.

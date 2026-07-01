@@ -1,0 +1,622 @@
+---
+title: "Task 5 Writeup"
+description: "A writeup for the fifth task of the 2025 NSA Codebreaker Challenge"
+date: 1-6-2026
+slug: nsa-cbc-2025/task5
+tags: ['writeup', 'codebreaker', 'rev', 'crypto', '2025']
+authors: ["flocto"]
+image: "./hero.png"
+order: 5
+---
+import Callout from '@/components/Callout.astro'
+
+## Task 5 - Putting it all together - (Cryptanalysis)
+<Callout title="Description" showVariant={false}>
+NSA analysts confirm that there is solid evidence that this binary was at least part of what had been installed on the military development network. Unfortunately, we do not yet have enough information to update NSA senior leadership on this threat. We need to move forward with this investigation!
+
+The team is stumped - they need to identify something about who was controlling this malware. They look to you. "Do you have any ideas?"
+
+Prompt:
+- Submit the full URL to the adversary's server
+</Callout>
+
+This time, we've given absolutely nothing to go off of. Of course, this means that the answer is somewhere inside the previous tasks. Looking back at the strings from Task 4, we don't have a full URL, and the only IP address is in a private range, so it's unlikely to be the answer.
+```
+str0: b'/opt/dafin/intel/ops_brief_redteam.pdf'
+str1: b'DAFIN_SEC_PROFILE'
+str2: b'/proc/cpuinfo'
+str3: b'flags'
+str4: b'hypervisor'
+str5: b'systemd-detect-virt 2>/dev/null'
+str6: b'r'
+str7: b'none'
+str8: b'203.0.113.42'
+str9: b'GET /module HTTP/1.1'
+str10: b'/tmp/'
+str11: b'.'
+str12: b'JoZ0To1QYoPN8y47'
+str13: b'execute_module'
+```
+
+However, we haven't exactly finished with the binary from Task 4. Looking at some of the other functions, we see a `Comms` class that seems to handle some form of encrypted communication, as well as tons of imports from OpenSSL used in these functions.
+
+![Comms class in binary](/img/writeups/2026/nsa-cbc/task5-comms-functions.png)
+
+### Comms class
+
+Let's start by looking at the constructor and modeling the appriopriate struct from the code.
+```cpp
+int64_t Comms::Comms()
+    int512_t zmm0
+    zmm0.o = zx.o(0)
+    int32_t* entry_rdi
+    uint8_t* rbx = entry_rdi
+    entry_rdi[0xe] = 0
+    *(entry_rdi + 0x40) = 0
+    *entry_rdi = 0xffffffff
+    __builtin_memset(dest: &entry_rdi[5], ch: 0, count: 0x21)
+    *(rbx + 0x48) = EVP_CIPHER_CTX_new(zmm0)
+    *(rbx + 0x50) = EVP_CIPHER_CTX_new()
+    *(rbx + 0x58) = EVP_CIPHER_CTX_new()
+    *(rbx + 0x60) = EVP_CIPHER_CTX_new()
+    Comms::gen_key(rbx, (&rbx[0x14]).d, 0x10)
+    Comms::gen_key(rbx, (&rbx[0x24]).d, 0x10)
+    rbx[0x34] = 1
+    aes_init_enc(&rbx[0x14], *(rbx + 0x48))
+    aes_init_enc(&rbx[0x24], *(rbx + 0x50))
+    aes_init_dec(&rbx[0x14], *(rbx + 0x58))
+    return aes_init_dec(&rbx[0x24], *(rbx + 0x60)) __tailcall
+```
+
+We can see 4 different EVP_CIPHER_CTX objects being created, likely for AES encryption and decryption. The `gen_key` function is called twice, which we can assume generates two different AES keys. Putting it all together, we get a struct like this:
+```cpp
+int64_t Comms::Comms(struct Comms* this)
+    this->__offset(0x38).d = 0
+    this->__offset(0x40).q = 0
+    this->__offset(0x0).d = 0xffffffff
+    this->key_inited = false
+    __builtin_memset(dest: &this->key1, ch: 0, count: 0x10)
+    __builtin_memset(dest: &this->key2, ch: 0, count: 0x10)
+    this->enc1 = EVP_CIPHER_CTX_new()
+    this->enc2 = EVP_CIPHER_CTX_new()
+    this->dec1 = EVP_CIPHER_CTX_new()
+    this->dec2 = EVP_CIPHER_CTX_new()
+    Comms::gen_key(this, &this->key1, 0x10)
+    Comms::gen_key(this, &this->key2, 0x10)
+    this->key_inited = true
+    aes_init_enc(&this->key1, this->enc1)
+    aes_init_enc(&this->key2, this->enc2)
+    aes_init_dec(&this->key1, this->dec1)
+    return aes_init_dec(&this->key2, this->dec2) __tailcall
+```
+
+The `aes_init_enc` and `aes_init_dec` functions simply initialize the AES contexts with the provided keys using AES-128-ECB mode.
+```c
+int64_t aes_init_enc(int64_t arg1, int64_t arg2)
+    int32_t result = EVP_EncryptInit_ex(arg2, EVP_aes_128_ecb(), 0, arg1, 0)
+    if (result == 0)
+        return puts(str: "error creating enc") __tailcall
+    
+    return result
+
+int64_t aes_init_dec(int64_t arg1, int64_t arg2)
+    int32_t result = EVP_DecryptInit_ex(arg2, EVP_aes_128_ecb(), 0, arg1, 0)
+    if (result == 0)
+        return puts(str: "error creating dec") __tailcall
+    
+    return result
+```
+
+Now let's look at the `gen_key` function to see how the AES keys are generated.
+```c collapse={29-38}
+uint64_t Comms::gen_key(struct Comms* comms, char* buf, uint32_t len)
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    char dest[0x20]
+    __builtin_memset(&dest, ch: 0, count: 0x20)
+    generate_key(&dest, len: 0x20)
+    uint32_t len_1 = 0x20
+    
+    if (len s<= 0x20)
+        len_1 = len
+    
+    int64_t len_2 = sx.q(len_1)
+    
+    if (len_2 u>= 8)
+        int64_t* rcx_2 = &buf[8] & 0xfffffffffffffff8
+        *buf = dest[0].q
+        void var_50
+        *(buf + len_2 - 8) = *(&var_50 + len_2)
+        void* rbp_1 = buf - rcx_2
+        void* rdx_1 = (len_2 + rbp_1) & 0xfffffffffffffff8
+        
+        if (rdx_1 u>= 8)
+            int64_t i = 0
+            
+            do
+                *(rcx_2 + i) = *(&dest - rbp_1 + i)
+                i += 8
+            while (i u< (rdx_1 & 0xfffffffffffffff8))
+    else if ((len_2.b & 4) != 0)
+        *buf = dest[0].d
+        void var_4c
+        *(buf + len_2 - 4) = *(&var_4c + len_2)
+    else if (len_2 != 0)
+        *buf = dest[0]
+        void var_4a
+        
+        if ((len_2.b & 2) != 0)
+            *(buf + len_2 - 2) = *(&var_4a + len_2)
+    
+    if (CANARY == tcb->stack_guard)
+        return CANARY - tcb->stack_guard
+    
+    __stack_chk_fail()
+```
+Interestingly, even though the ciphers use AES-128, this function seems to generate 32 bytes of key material. However, only 16 bytes are copied out, as the `len` parameter passed in to this function is always 0x10.
+
+This function calls `generate_key`, then everything below is essentially an inlined `memcpy` to copy the generated key into the provided buffer. Let's look at `generate_key`. 
+```c {24-28}
+uint64_t generate_key(uint128_t* buf, int32_t len)
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    uint128_t tmp[0x2]
+    tmp[0] = zx.o(0)
+    tmp[1] = zx.o(0)
+    int64_t var_63
+    __builtin_strncpy(dest: &var_63, src: "ABCD123321", count: 0x2b)
+    FILE* fp
+    
+    if (len == 0x20)
+        fp = fopen(filename: "/dev/random", mode: "r")
+    
+    int32_t res
+    
+    if (len != 0x20 || fp == 0)
+        res = -1
+    else
+        res = -1
+        
+        if (fread(buf, size: 1, count: 0x20, fp) == 0x20)
+            res = 0
+            int128_t hsh[0x2]
+            HMAC(EVP_sha3_256(), &var_63, 0xb, buf, 0x20, &hsh, 0)
+            int64_t zmm1_1 = (buf[1] ^ hsh[1]) u>> 64
+            buf[1] = tmp[1]
+            tmp[0].q = zmm1_1 u>> 38
+            *buf = tmp[0]
+        
+        fclose(fp)
+    
+    if (CANARY == tcb->stack_guard)
+        return zx.q(res)
+    
+    __stack_chk_fail()
+```
+
+The function first reads 32 bytes from `/dev/random` into the provided buffer, then computes an HMAC using SHA3-256 with the key "ABCD123321" and the random data as the message. The resulting hash is then modified and stored back into the buffer.
+
+Interestingly, the final key clears the last 16 bytes `buf[1] = tmp[1]`, and in the first 16 bytes, only stores the upper 26 bits of the HMAC result `tmp[0].q = zmm1_1 u>> 38`. This means that the effective key size is only 26 bits, with everything else being zeroed out. This is a very weak key, and we can brute-force it.
+
+However, we don't have any ciphertext to brute-force against yet. Let's look at a few more of the `Comms` functions to see if we can find how the communication works.
+
+After looking at several other `Comms` functions, we can follow their references up to a function that seems to handle full connections. The `connect_to_server` function sets up a connection to a server using a hostname and port.
+```c
+uint64_t Comms::connect_to_server(struct Comms* comms, char* host, int32_t port)
+    struct tcbhead_t* tcb
+    uint64_t stack_guard = tcb->stack_guard
+    comms->host = host
+    comms->port = port
+    int64_t var_26 = 0
+    char** h_addr_list = gethostbyname(name: host)->h_addr_list
+    int16_t addr = 2
+    var_26:6.q = 0
+    var_26:2.d = inet_addr(cp: inet_ntoa(in: **h_addr_list))
+    var_26.w = rol.w(comms->port.w, 8)
+    int32_t fd = socket(2, 1, 0)
+    comms->__offset(0x0).d = fd
+    
+    if (connect(fd, &addr, len: 0x10) s< 0)
+        comms->__offset(0x0).d = 0xffffffff
+    
+    if (Comms::full_handshake() == 1)
+        exit(status: 1)
+    
+    if (stack_guard == tcb->stack_guard)
+        return stack_guard - tcb->stack_guard
+    
+    __stack_chk_fail()
+```
+We also know now that the first element in the `Comms` struct is a file descriptor for the socket connection. The `full_handshake` function is called after connecting, so let's look at that next.
+```c
+int64_t Comms::full_handshake(struct Comms* comms)
+    char* rsa_pubkey = Comms::recv_rsa_pubkey(comms)
+    comms->__offset(0x40).q = rsa_pubkey
+    
+    if (rsa_pubkey != 0)
+        int32_t rax = Comms::send_aes_keys(comms)
+        free(ptr: comms->__offset(0x40).q)
+        
+        if (rax == 0)
+            return Comms::application_handshake(comms) __tailcall
+    
+    return 1
+```
+The `full_handshake` function first receives an RSA public key from somewhere, then sends the AES keys, then finally does an application handshake. Given that the `rsa_pubkey` is immediately freed after sending the AES keys, it's likely that this key is only used to encrypted the AES keys for secure transmission.
+
+Let's look at the first two functions:
+```c collapse={2-14} collapse={17-66} {5-7,27,52-54}
+char* Comms::recv_rsa_pubkey(struct Comms* comms)
+    int32_t* buf = calloc(nmemb: 1, size: 0x1000)
+    int32_t recved = recv(comms->fd, buf, len: 0x1000, flags: 0)
+    
+    if (recved - 1 u> 0xffe || *buf != 0xc0dec0de || buf[1].w != 0xeeff)
+        free(ptr: buf)
+        return 0
+    
+    comms->__offset(0x38).d = recved - 6
+    int64_t n = sx.q(recved - 6)
+    char* result = malloc(n)
+    __memcpy_chk(result, buf + 6, n, n)
+    free(ptr: buf)
+    return result
+
+uint64_t Comms::send_aes_keys(struct Comms* comms)
+    char key2[0x10] = comms->key2
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    uint64_t var_490 = 0
+    char key1[0x10] = comms->key1
+    char key2_1[0x10] = key2
+    void buf
+    __builtin_memset(dest: &buf, ch: 0, count: 0x400)
+    int64_t var_488
+    int64_t* var_4a0 = &var_488
+    Comms::rsa_encrypt(&var_488, comms.d, &key1, 0x20)
+    int64_t r14 = var_488
+    int64_t var_480
+    
+    if (var_490 != var_480 - r14)
+        class std::runtime_error* thrown_exception = __cxa_allocate_exception(thrown_size: 0x10)
+        std::runtime_error::runtime_error(this: thrown_exception, __arg: "Error")
+        tcb->stack_guard
+        
+        if (CANARY != tcb->stack_guard)
+            __stack_chk_fail()
+            noreturn
+        
+        __cxa_throw(thrown_exception, tinfo: _typeinfo_for_std::runtime_error, 
+            dest: std::runtime_error::~runtime_error)
+        noreturn
+    
+    int64_t buf_1 = calloc(nmemb: 1, size: var_490 + 6)
+    __memcpy_chk(buf_1, &data_40a141, 6, var_490 + 6)
+    size_t rcx_2 = 6
+    
+    if (var_490 + 6 u>= 6)
+        rcx_2 = var_490 + 6
+    
+    __memcpy_chk(buf_1 + 6, r14, var_490, rcx_2 - 6)
+    send(comms->fd, buf: buf_1, len: var_490 + 6, flags: 0)
+    free(ptr: buf_1)
+    int32_t rax_3 = Comms::is_correct_response(comms, &buf, 
+        zx.q(recv(comms->fd, &buf, len: 0x400, flags: 0)), "KEY_RECEIVED")
+    int64_t rdi_7 = var_488
+    int32_t rbx_1
+    rbx_1.b = rax_3 == 0
+    
+    if (rdi_7 != 0)
+        operator delete(ptr: rdi_7)
+    
+    if (CANARY == tcb->stack_guard)
+        return zx.q(rbx_1)
+    
+    __stack_chk_fail()
+```
+
+The `recv_rsa_pubkey` function receives data from the socket, checks for a magic value and some other conditions, then extracts the RSA public key from the received data. The `send_aes_keys` function encrypts the AES keys using RSA and sends them to the server, then waits for a confirmation response. We also see the first use of `Comms::is_correct_response`, which simply checks if the received response matches the expected string prepended with the same `DEC0DEC0FFEE` magic value.
+```c
+bool Comms::is_correct_response(struct Comms* comms, char* buf, uint32_t buf_len, char* expected, int32_t expected_len)
+    if (expected_len + 6 != buf_len)
+        return 0
+    
+    if (*buf == 0xc0dec0de && *(buf + 4) == 0xeeff)
+        return memcmp(&buf[6], expected, sx.q(expected_len)).d == 0
+    
+    return 0
+```
+
+Finally, we can look at the `application_handshake` function, which is called last in the `full_handshake`.
+```c {7-8}
+uint64_t Comms::application_handshake(struct Comms* comms)
+
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    int32_t var_14 = 0
+    int32_t rax_2
+    rax_2.b = Comms::is_correct_response(comms, Comms::send_message(comms, "REQCONN", 7), 0, 
+        "REQCONN_OK", len: 0xa) == 0
+    
+    if (CANARY == tcb->stack_guard)
+        return zx.q(rax_2.b)
+    
+    __stack_chk_fail()
+```
+
+This performs a very simple handshake by sending the message "REQCONN" and expecting "REQCONN_OK" in response. Let's look at the `send_message` function to see how messages are sent.
+```c {"vec extend":8-9} {40-47} collapse={20-38}
+char* Comms::send_message(struct Comms* comms, char* msg, int32_t len)
+    int64_t len_1 = len
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    struct vector vec
+    vec.__offset(0x0).o = zx.o(0)
+    vec.__offset(0x10).q = 0
+    sub_406c20(&vec, nullptr, &data_40a141, &data_40a147)
+    sub_406c20(&vec, vec.__offset(0x8).q, msg, &msg[len_1])
+    int32_t sz_1 = (len_1 + 0x16).d
+    int32_t var_490 = 0
+    int64_t sz = sx.q(sz_1)
+    
+    if (sz_1 s< 0)
+        
+        if (CANARY == tcb->stack_guard)
+            std::__throw_length_error(what: "cannot create std::vector larger than max_size()")
+            noreturn
+    else
+        int128_t var_460_1 = zx.o(0)
+        char* buf_1
+        
+        if (sz == 0)
+            int64_t var_468_1
+            __builtin_memset(dest: &var_468_1, ch: 0, count: 0x18)
+            buf_1 = nullptr
+        else
+            char* buf_2 = operator new(sz)
+            void* rcx_1 = &buf_2[sz]
+            char* buf_3 = buf_2
+            buf_1 = buf_2
+            var_460_1:8.q = rcx_1
+            void* var_4a8_1 = rcx_1
+            *buf_2 = 0
+            
+            if (sz != 1)
+                memset(&buf_2[1], 0, sz - 1)
+        
+        int64_t r13_1 = vec.__offset(0x0).q
+        custom_enc(comms->enc1, comms->enc2, r13_1, zx.q((len_1 + 6).d), buf_1, &var_490)
+        send(comms->fd, buf: buf_1, len: sx.q(var_490), flags: 0)
+        void buf
+        int32_t flags = __builtin_memset(dest: &buf, ch: 0, count: 0x400)
+        int32_t rax_1 = recv(comms->fd, &buf, len: 0x400, flags)
+        int32_t var_48c = 0
+        char* result = calloc(nmemb: 1, size: 0x400)
+        custom_dec(comms->dec1, comms->dec2, &buf, zx.q(rax_1), result, &var_48c)
+        int32_t* entry_rcx
+        *entry_rcx = var_48c
+        
+        if (buf_1 != 0)
+            operator delete(ptr: buf_1)
+        
+        if (r13_1 != 0)
+            operator delete(ptr: r13_1)
+        
+        if (CANARY == tcb->stack_guard)
+            return result
+    
+    __stack_chk_fail()
+```
+
+This is quite a bit more complicated, as it uses a `std::vector` to build the message, but essentially it prepends the magic value to the message, then calls `custom_enc` to encrypt the message using the two AES contexts, sends it over the socket, then waits for a response, decrypts it using `custom_dec`, and returns the decrypted response.
+
+Let's look at `custom_enc` and `custom_dec` to see how the encryption and decryption is done.
+```c collapse={15-35} {6-7}
+int64_t custom_enc(void* enc1, void* enc2, char* buf, int32_t len, char* out_buf, int32_t* out_len)
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    int32_t enc1_len = len + 0x10
+    char* ptr = malloc(n: sx.q(len + 0x10))
+    aes_encrypt(enc1, buf, zx.q(len), ptr, &enc1_len)
+    aes_encrypt(enc2, ptr, zx.q(enc1_len), out_buf, out_len)
+    
+    if (CANARY == tcb->stack_guard)
+        return free(ptr) __tailcall
+    
+    __stack_chk_fail()
+
+uint64_t aes_encrypt(void* enc_ctx, char* buf, int32_t buf_len, char* out_buf, int32_t* out_len)
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    
+    if (EVP_EncryptInit_ex(enc_ctx, 0, 0, 0, 0) == 0)
+        puts(str: "error using enc ctx")
+    
+    if (EVP_EncryptUpdate(enc_ctx, out_buf, out_len, buf, zx.q(buf_len)) == 0)
+        puts(str: "error encrypting")
+    
+    int32_t padding
+    
+    if (EVP_EncryptFinal_ex(enc_ctx, &out_buf[sx.q(*out_len)], &padding) == 0)
+        puts(str: "error finalizing encryption")
+    
+    *out_len += padding
+    
+    if (CANARY == tcb->stack_guard)
+        return CANARY - tcb->stack_guard
+    
+    __stack_chk_fail()
+```
+
+```c collapse={15-35} {6-7}
+int64_t custom_dec(void* dec1, void* dec2, char* enc, int32_t len, char* out_buf, int32_t* out_len)
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    char* ptr = malloc(n: sx.q(len + 0x10))
+    int32_t dec2_len = 0
+    aes_decrypt(dec2, enc, zx.q(len), ptr, &dec2_len)
+    aes_decrypt(dec1, ptr, zx.q(dec2_len), out_buf, out_len)
+    
+    if (CANARY == tcb->stack_guard)
+        return free(ptr) __tailcall
+    
+    __stack_chk_fail()
+
+uint64_t aes_decrypt(void* dec_ctx, char* buf, int32_t len, char* out_buf, int32_t* out_len)
+    struct tcbhead_t* tcb
+    uint64_t CANARY = tcb->stack_guard
+    
+    if (EVP_DecryptInit_ex(dec_ctx, 0, 0, 0, 0) == 0)
+        puts(str: "error using dec")
+    
+    if (EVP_DecryptUpdate(dec_ctx, out_buf, out_len, buf, zx.q(len)) == 0)
+        puts(str: "error decrypting")
+    
+    int32_t padding
+    
+    if (EVP_DecryptFinal_ex(dec_ctx, &out_buf[sx.q(*out_len)], &padding) == 0)
+        puts(str: "error finalizing decryption")
+    
+    *out_len += padding
+    
+    if (CANARY == tcb->stack_guard)
+        return CANARY - tcb->stack_guard
+    
+    __stack_chk_fail()
+```
+
+The `custom_enc` function performs double AES encryption: it first encrypts the plaintext with `enc1`, then encrypts the result with `enc2`. The `custom_dec` function does the reverse: it first decrypts with `dec2`, then decrypts the result with `dec1`. 
+
+Great, so now we have the full communication flow:
+1. First connect to the server.
+2. Receive an RSA public key.
+3. Generate two weak AES keys (26 bits of entropy each), encrypt them with the RSA key, and send them to the server.
+4. Use the AES keys to perform a simple handshake by sending "REQCONN" and expecting "REQCONN_OK".
+
+After this, we can assume the later communication will also use the same AES encryption scheme, following the same `Comms::send_message` pattern.
+
+### Classic NSA Codebreaker moment
+
+Okay, but we still don't have any ciphertext to analyze, given the category for this task. However, we know this is supposed to be some sort of network communication, so where have we seen that before...?
+
+That's right! In Task 2, we had a PCAP file with network traffic. Let's see if there's anything interesting in there.
+![Task 2 PCAP searching for "KEY" in TCP stream](/img/writeups/2026/nsa-cbc/task5-pcap-key.png)
+
+Lo and behold, we find a TCP stream containing expected `KEY_RECEIVED` response from the server! Let's extract the full TCP stream and analyze it. This is what the full comm looks like:
+
+![Full TCP communication from Task 2 PCAP](/img/writeups/2026/nsa-cbc/task5-full-comm.png)
+
+Unfortunately, the RSA public key is a 2048 bit key, and running it through a trivial factorization tool doesn't yield any results. However, we don't actually need to recover the RSA key, since we can still brute-force the AES keys.
+
+### Bruteforce to the rescue
+
+Even though brute-forcing both keys at once would be too much ($$2^{52}$$), we can still brute-force them one at a time due to the way the encryption is structured. If we brute force the second key first, we can see what candidates produce an entire empty padding block, since the first encryption is guaranteed to be a multiple of the block size (the plaintext is only 6 bytes plus padding). This reduces the number of candidates significantly, and we can then brute-force the first key on the remaining candidates.
+
+```python title="brute.py" collapse={19-27,30-36}
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+from tqdm import tqdm
+import struct
+import multiprocessing as mp
+from functools import partial
+
+total_keys = 1 << 26
+# this should be Enc("REQCONN")
+enc = b'\xea\x8e\xe1\xb4\n0_\xf5p\x17\x94\xdb?\x8e\x1dD\xe5\xd9\x9bo\xa7\xaf\x1c|\x06\x05\xf1\x82\xe4\xe6q\xa8'
+
+key2_expected_padding = b'\x10' * AES.block_size
+
+magic = b'\xde\xc0\xde\xc0\xff\xee'
+key1_p_len = 16 - (len(magic) + len(b'REQCONN'))
+key1_expected_padding = bytes([key1_p_len]) * key1_p_len
+
+def find_key_cands(key, enc, expected_padding):
+    n = len(expected_padding)
+    key = struct.pack('<I', key).ljust(16, b'\x00')
+    cipher = AES.new(key, AES.MODE_ECB)
+    dec = cipher.decrypt(enc)
+    if dec[-n:] == expected_padding:
+        try:
+            return (key, unpad(dec, 16))
+        except:
+            pass
+
+def run_phase(enc, expected_padding):
+    candidates = []
+    with mp.Pool() as pool:
+        f = partial(find_key_cands, enc=enc, expected_padding=expected_padding)
+        for res in tqdm(pool.imap_unordered(f, range(total_keys), chunksize=10000), total=total_keys):
+            if res:
+                candidates.append(res)
+    return candidates
+
+if __name__ == '__main__':
+    key2_candidates = run_phase(enc, key2_expected_padding)
+    print(f"Key 2 candidates: {key2_candidates}")
+    if not key2_candidates:
+        print("No candidates found for Key 2")
+        exit()
+    key2, dec2 = key2_candidates[0]
+
+    key1_candidates = run_phase(dec2, key1_expected_padding)
+    print(f"Key 1 candidates: {key1_candidates}")
+```
+
+Running this and waiting about 5 minutes  gives us the following output:
+```shell ins="REQCONN"
+$ python3 writeup_brute.py
+100%|███████████████████████████████████████████████████████████████████| 67108864/67108864 [01:39<00:00, 675507.51it/s]
+Key 2 candidates: [(b'(E:\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', b'pF\xc7I\x99\x12#M@G\xaa\xcd"f\x9a\x8a')]
+100%|███████████████████████████████████████████████████████████████████| 67108864/67108864 [01:31<00:00, 731712.43it/s]
+Key 1 candidates: [(b'L\x89H\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', b'\xca\xe0\xb0\xa5\x83F\xf3g\xa3\xa6\xe7\xfc\x82'), (b'\xc4\xac\x9f\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', b'\xde\xc0\xde\xc0\xff\xeeREQCONN')]
+```
+
+We can see the successful decryption of the handshake message `b'\xde\xc0\xde\xc0\xff\xeeREQCONN'`, confirming that we have found the correct keys:
+- Key 1: `b'\xc4\xac\x9f\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'`
+- Key 2: `b'(E:\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'`
+
+Now, we can simply decrypt the rest of the communication in the PCAP using these keys. After decrypting the full communication, we find the URL we were looking for:
+```python title="decrypt.py" collapse={19-26}
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+
+key1 = b'\xc4\xac\x9f\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+key2 = b'(E:\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+magic = b'\xde\xc0\xde\xc0\xff\xee'
+
+def decrypt(data):
+    cipher = AES.new(key2, AES.MODE_ECB)
+    dec = cipher.decrypt(data)
+    unpadded = unpad(dec, 16)
+
+    cipher = AES.new(key1, AES.MODE_ECB)
+    dec = cipher.decrypt(unpadded)
+    unpadded = unpad(dec, 16)
+    return unpadded
+
+enc_msgs = [
+    # Enc("REQCONN")
+    b'\xea\x8e\xe1\xb4\n0_\xf5p\x17\x94\xdb?\x8e\x1dD\xe5\xd9\x9bo\xa7\xaf\x1c|\x06\x05\xf1\x82\xe4\xe6q\xa8',
+    # Enc("REQCONN_OK")
+    b"\xc0<~\x00\xf0\xae\x80\x8c\x90BM\xb7\x85n\xcf\x8ek\xa6`\xe7\xac\xe4[\xa7\xb5n\xbf'\xd3\xf0BN\xe5\xd9\x9bo\xa7\xaf\x1c|\x06\x05\xf1\x82\xe4\xe6q\xa8",
+    # Enc(Msg1)
+    b'\xee\x9b\x17\xba\x13y\xe1%wD\x90\x87\x96\xf5\xac.\xc2A(]\xe1\xd4\x80\xb7i\xdc.l:\x9c<\x8db-5\xd4\x04\x03V\xcc\xe0\x1f\xf5k}\x1b&Z\xe5\xd9\x9bo\xa7\xaf\x1c|\x06\x05\xf1\x82\xe4\xe6q\xa8',
+    # Enc(Msg2)
+    b'A\x8c\xca\xa2}\xbd\xc0\x8e\x1d\xe3\x00\xe4\xa69J\x0f\xde\xbd\xb2\x7fjh9\xb6n\xdd\x80O\xb6u[\x02\xcek\xaa4\x1c\xce\x98n\x9c\xd23\xa6\x89%z\x9a\x9bR-\x9bG\xebG-\xccJ\xc1\xbe\x8b\xc1P\xb4\xe5\xd9\x9bo\xa7\xaf\x1c|\x06\x05\xf1\x82\xe4\xe6q\xa8'
+]
+
+for enc in enc_msgs:
+    dec = decrypt(enc)
+    header, dec = dec[:6], dec[6:]
+    assert header == magic
+    print(dec)
+```
+
+```shell ins={5}
+$ python3 writeup_decrypt.py
+b'REQCONN'
+b'REQCONN_OK'
+b'DATA REQUEST mattermost_url'
+b'https://198.51.100.166/mattermost/Xho9_BYdUiOyF'
+```
+
+We get a Mattermost URL: `https://198.51.100.166/mattermost/Xho9_BYdUiOyF`, the answer to this task. 
