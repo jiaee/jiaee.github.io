@@ -1,52 +1,48 @@
 ---
 import Breadcrumbs from '@/components/Breadcrumbs.astro'
-import Link from '@/components/Link.astro'
 import PageHead from '@/components/PageHead.astro'
 import Layout from '@/layouts/Layout.astro'
-import { Icon } from 'astro-icon/components'
 
-const tools = [
+const sections = [
   {
-    href: '/tools/ascii',
-    title: 'ASCII Converter',
-    icon: 'lucide:type',
-    description:
-      'Convert text between ASCII, hex, binary, decimal, Base64, URL encoding, HTML entities, Unicode code points, and integer formats.',
+    title: 'Selected Papers',
+    items: [
+      'J. Cheong, … , J Torous. "Automated Detection Of Clinical High Risk Population Of Schizophrenia: Assessing The Generalizability Of NLP And LLM-Based Methods", 2026.',
+      'J. Cheong, A. Mogharabin, P. P. Liang, H. Gunes, S. Kalkan, "FairSSL: Fair Multimodal Self-Supervised Learning", 43rd Int. Conference on Machine Learning (ICML), 2026.',
+      'J. Cheong, S. Kalkan, H. Gunes, "FairReFuse: Referee-Guided Fusion for Multi-Modal Causal Fairness in Depression Detection", 33rd Int. Joint Conf. on Artificial Intelligence (IJCAI), 2024.',
+      'J. Cheong, S. Kalkan, H. Gunes, "Towards Gender Fairness for Mental Health Predictions", 32nd Int. Joint Conf. on Artificial Intelligence (IJCAI), 2023.',
+    ],
   },
   {
-    href: '/tools/jwt',
-    title: 'JWT Decoder',
-    icon: 'lucide:key-round',
-    description:
-      'Decode JWT headers and payloads locally, inspect claims, and check expiration, issued-at, and signature metadata.',
+    title: 'Selected Awards and Fellowships',
+    items: [
+      'Harvard Berkman Klein Fellow, 2026',
+      'AAAC Outstanding PhD Dissertation, 2025. (1 global award per year)',
+      'Deutscher Akademischer Austauschdienst (DAAD), AInet Fellow, 2025.',
+      'Cambridge Leverhulme Center for the Future of Intelligence student fellow, 2023-2025.',
+      'Best Paper in Responsible Affective Computing, 2023.',
+      'Peter Clarke Prize for Scientific Communication, 2023. 1st prize winner (out of 60+ submissions). Awarded in recognition of excellent scientific communication writing. Award value: £1000.',
+    ],
   },
 ]
 ---
 
 <Layout class="max-w-3xl">
-  <PageHead slot="head" title="Tools" />
-  <Breadcrumbs items={[{ label: 'Tools', icon: 'lucide:wrench' }]} />
+  <PageHead slot="head" title="Research and Awards" />
+  <Breadcrumbs items={[{ label: 'Research and Awards', icon: 'lucide:book-open' }]} />
 
-  <div class="flex flex-col gap-4">
-    <div class="flex flex-wrap gap-2">
-      <ul class="flex flex-col gap-2">
-        {
-          tools.map((tool) => (
-            <li>
-              <Link
-                href={tool.href}
-                class="hover:bg-accent/10 text-foreground/80 hover:text-foreground/100 block rounded-lg p-4 transition-colors"
-              >
-                <span class="inline-flex items-center gap-2">
-                  {tool.title}
-                  <Icon name={tool.icon} class="size-4" />
-                </span>
-                <p class="mt-1 ml-1 text-sm">{tool.description}</p>
-              </Link>
-            </li>
-          ))
-        }
-      </ul>
-    </div>
+  <div class="flex flex-col gap-2">
+    {sections.map((section) => (
+      <div class="rounded-lg border border-border/60 bg-card/60 p-4 shadow-sm">
+        <h2 class="mb-3 text-lg font-semibold">{section.title}</h2>
+        <div class="prose prose-neutral text-sm dark:prose-invert">
+          <ul class="m-0 space-y-2">
+            {section.items.map((item) => (
+              <li>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    ))}
   </div>
 </Layout>
